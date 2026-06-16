@@ -1,7 +1,8 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import ReactFlow, {
   Controls,
   Background,
+  MiniMap,
   useNodesState,
   useEdgesState,
   MarkerType,
@@ -11,6 +12,90 @@ import ReactFlow, {
 import dagre from 'dagre';
 import CustomNode from './CustomNode';
 import 'reactflow/dist/style.css';
+
+// BFS to find the path of node and edge IDs connecting source and target
+const findRelationshipPath = (nodes, edges, sourceId, targetId) => {
+  if (!sourceId || !targetId || sourceId === targetId) return { nodeIds: [], edgeIds: [] };
+  
+  const adj = {};
+  edges.forEach(edge => {
+    const u = edge.sourceNodeId;
+    const v = edge.targetNodeId;
+    if (!adj[u]) adj[u] = [];
+    if (!adj[v]) adj[v] = [];
+    adj[u].push({ neighbor: v, edgeId: edge._id });
+    adj[v].push({ neighbor: u, edgeId: edge._id });
+  });
+
+  const queue = [sourceId];
+  const visited = new Set([sourceId]);
+  const parentMap = {};
+
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    if (curr === targetId) {
+      const pathNodeIds = [];
+      const pathEdgeIds = [];
+      let step = targetId;
+      while (step !== sourceId) {
+        pathNodeIds.push(step);
+        const parentInfo = parentMap[step];
+        if (parentInfo) {
+          pathEdgeIds.push(parentInfo.edgeId);
+          step = parentInfo.parentId;
+        } else {
+          break;
+        }
+      }
+      pathNodeIds.push(sourceId);
+      return { nodeIds: pathNodeIds, edgeIds: pathEdgeIds };
+    }
+
+    const neighbors = adj[curr] || [];
+    for (const { neighbor, edgeId } of neighbors) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        parentMap[neighbor] = { parentId: curr, edgeId };
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  return { nodeIds: [], edgeIds: [] };
+};
+
+// BFS/DFS to find all descendants of collapsed nodes
+const getHiddenNodeIds = (nodes, edges, collapsedNodeIds) => {
+  const hidden = new Set();
+  if (!collapsedNodeIds || collapsedNodeIds.size === 0) return hidden;
+
+  const childrenMap = {};
+  edges.forEach(edge => {
+    if (edge.relationshipType === 'parent_child') {
+      const parent = edge.sourceNodeId;
+      const child = edge.targetNodeId;
+      if (!childrenMap[parent]) childrenMap[parent] = [];
+      childrenMap[parent].push(child);
+    }
+  });
+
+  const stack = [...collapsedNodeIds];
+  const visited = new Set();
+  
+  while (stack.length > 0) {
+    const curr = stack.pop();
+    if (visited.has(curr)) continue;
+    visited.add(curr);
+
+    const children = childrenMap[curr] || [];
+    children.forEach(child => {
+      hidden.add(child);
+      stack.push(child);
+    });
+  }
+
+  return hidden;
+};
 
 // Register custom node types
 const nodeTypes = {
@@ -228,11 +313,40 @@ const CanvasComponent = ({
   onNodeClick,
   layoutDirection = 'TB', // 'TB' or 'LR'
   onViewImage,
-  onViewCrossTree
+  onViewCrossTree,
+  selectedNode
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const { fitView } = useReactFlow();
+  const { fitView, setCenter } = useReactFlow();
+
+  const [showMiniMap, setShowMiniMap] = useState(false);
+  const [collapsedNodeIds, setCollapsedNodeIds] = useState(new Set());
+
+  const toggleCollapseNode = (nodeId) => {
+    setCollapsedNodeIds(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  };
+
+  // Pan and zoom to selectedNode when it changes
+  useEffect(() => {
+    if (selectedNode && nodes.length > 0) {
+      const targetNode = nodes.find(n => n.id === selectedNode._id);
+      if (targetNode) {
+        setCenter(targetNode.position.x + 110, targetNode.position.y + 47.5, {
+          zoom: 1.0,
+          duration: 500
+        });
+      }
+    }
+  }, [selectedNode, nodes, setCenter]);
 
   // Compute layout and prepare nodes/edges when raw data or configuration changes
   useEffect(() => {
@@ -242,8 +356,18 @@ const CanvasComponent = ({
       return;
     }
 
+    // 0. Compute hidden nodes and relationship path
+    const hiddenNodeIds = getHiddenNodeIds(rawNodes, rawEdges, collapsedNodeIds);
+    const path = (relationSource && relationTarget) 
+      ? findRelationshipPath(rawNodes, rawEdges, relationSource._id, relationTarget._id) 
+      : { nodeIds: [], edgeIds: [] };
+
     // 1. Prepare React Flow edges
-    const reactFlowEdges = rawEdges.map((edge) => {
+    const visibleRawEdges = rawEdges.filter(
+      e => !hiddenNodeIds.has(e.sourceNodeId) && !hiddenNodeIds.has(e.targetNodeId)
+    );
+
+    const reactFlowEdges = visibleRawEdges.map((edge) => {
       const isSpouse = edge.relationshipType === 'spouse';
       const srcNode = rawNodes.find(n => n._id === edge.sourceNodeId);
       const tgtNode = rawNodes.find(n => n._id === edge.targetNodeId);
@@ -270,13 +394,15 @@ const CanvasComponent = ({
         labelBgStyle = { fill: '#061c15', fillOpacity: 0.9, stroke: '#10b981/20', strokeWidth: 1 };
       }
 
+      const isPathEdge = path.edgeIds.includes(edge._id);
+
       return {
         id: edge._id,
         source: edge.sourceNodeId,
         target: edge.targetNodeId,
         relationshipType: edge.relationshipType,
         type: isSpouse ? 'straight' : 'smoothstep',
-        animated: false,
+        animated: isPathEdge,
         className: isSpouse ? 'spouse' : 'parent_child',
         data: { relationshipType: edge.relationshipType },
         label: labelText,
@@ -285,20 +411,31 @@ const CanvasComponent = ({
         labelBgPadding: [5, 3],
         labelBgBorderRadius: 4,
         style: isSpouse 
-          ? { stroke: '#fb7185', strokeWidth: 2, strokeDasharray: '8 5', opacity: 0.7 } 
-          : { stroke: '#34d399', strokeWidth: 1.5, opacity: 0.6 },
+          ? { 
+              stroke: isPathEdge ? '#e11d48' : '#fb7185', 
+              strokeWidth: isPathEdge ? 3.5 : 2, 
+              strokeDasharray: isPathEdge ? undefined : '8 5', 
+              opacity: isPathEdge ? 1 : 0.7 
+            } 
+          : { 
+              stroke: isPathEdge ? '#f59e0b' : '#34d399', 
+              strokeWidth: isPathEdge ? 3 : 1.5, 
+              opacity: isPathEdge ? 1 : 0.6 
+            },
         // Add arrow markers for parent_child relationships
         markerEnd: !isSpouse ? {
           type: MarkerType.ArrowClosed,
           width: 14,
           height: 14,
-          color: '#34d399',
+          color: isPathEdge ? '#f59e0b' : '#34d399',
         } : undefined,
       };
     });
 
     // 2. Map nodes of the tree to React Flow format
-    const reactFlowNodes = rawNodes.map((node) => {
+    const visibleRawNodes = rawNodes.filter(n => !hiddenNodeIds.has(n._id));
+
+    const reactFlowNodes = visibleRawNodes.map((node) => {
       // Find if node has a spouse in the tree
       const hasSpouse = rawEdges.some(
         e => e.relationshipType === 'spouse' && 
@@ -306,8 +443,6 @@ const CanvasComponent = ({
       );
 
       // Determine if we should show the cross-tree link button for this node.
-      // We only show it for the imported spouse copy, not the native member node.
-      // In a cross-tree marriage, the spouse copy has a later ObjectId creation timestamp (larger _id) than the native spouse.
       let showCrossTreeLink = false;
       if (node.crossTreeLinkId) {
         const spouseEdge = rawEdges.find(
@@ -335,6 +470,9 @@ const CanvasComponent = ({
       const isSource = relationSource ? relationSource._id === node._id : false;
       const isTarget = relationTarget ? relationTarget._id === node._id : false;
 
+      const isPathNode = path.nodeIds.includes(node._id);
+      const hasChildren = rawEdges.some(e => e.relationshipType === 'parent_child' && e.sourceNodeId === node._id);
+
       return {
         id: node._id,
         type: 'kinshipNode',
@@ -358,6 +496,10 @@ const CanvasComponent = ({
           isSearched,
           isRelationSource: isSource,
           isRelationTarget: isTarget,
+          isRelationPath: isPathNode,
+          isCollapsed: collapsedNodeIds.has(node._id),
+          hasChildren,
+          onToggleCollapse: toggleCollapseNode,
           onAddChild,
           onAddSpouse,
           onEditProfile,
@@ -386,12 +528,13 @@ const CanvasComponent = ({
     relationSource,
     relationTarget,
     layoutDirection,
+    collapsedNodeIds,
     setNodes,
     setEdges
   ]);
 
   // Track signature of rawNodes to trigger fitView only on initial load, structural updates, or layout changes
-  const lastSignatureRef = React.useRef('');
+  const lastSignatureRef = useRef('');
 
   useEffect(() => {
     if (rawNodes.length > 0) {
@@ -436,7 +579,38 @@ const CanvasComponent = ({
           size={1} 
           variant="dots"
         />
+        {showMiniMap && (
+          <MiniMap
+            nodeColor={(node) => {
+              if (node.data.isDeceased) return '#475569';
+              return node.data.gender === 1 ? '#3b82f6' : '#ec4899';
+            }}
+            maskColor="rgba(15, 23, 42, 0.6)"
+            className="!bg-slate-950/80 !border-slate-800 !rounded-2xl !shadow-2xl"
+            style={{ 
+              bottom: 60,
+              left: 24,
+              width: 140,
+              height: 100,
+              margin: 0
+            }}
+            position="bottom-left"
+          />
+        )}
       </ReactFlow>
+
+      {/* Floating MiniMap Toggle Button */}
+      <div className="absolute bottom-6 left-6 z-10">
+        <button
+          onClick={() => setShowMiniMap(!showMiniMap)}
+          className="flex items-center space-x-1.5 bg-slate-900/90 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-slate-100 font-semibold text-xs px-3.5 py-2.5 rounded-xl transition duration-350 active:scale-95 shadow-2xl cursor-pointer"
+        >
+          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h4v4H7zm0-5h10v3H7zm6 5h4v4h-4z"/>
+          </svg>
+          <span>{showMiniMap ? 'Hide Mini-Map' : 'Show Mini-Map'}</span>
+        </button>
+      </div>
     </div>
   );
 };

@@ -30,6 +30,9 @@ const CustomNode = ({ data }) => {
     onViewImage,
     crossTreeLinkId,
     onViewCrossTree,
+    isCollapsed,
+    hasChildren,
+    onToggleCollapse,
   } = data;
 
   const isMale = gender === 1;
@@ -76,6 +79,8 @@ const CustomNode = ({ data }) => {
     containerClass = 'border-emerald-500 bg-gradient-to-br from-slate-900/90 to-emerald-950/20 shadow-xl ring-2 ring-emerald-500/20 scale-105';
   } else if (isRelationTarget) {
     containerClass = 'border-purple-500 bg-gradient-to-br from-slate-900/90 to-purple-950/20 shadow-xl ring-2 ring-purple-500/20 scale-105';
+  } else if (data.isRelationPath) {
+    containerClass = 'border-amber-500 bg-gradient-to-br from-slate-900/90 to-amber-950/15 shadow-[0_0_15px_rgba(245,158,11,0.25)] ring-2 ring-amber-500/20';
   }
 
   // Avatar color scheme
@@ -173,14 +178,24 @@ const CustomNode = ({ data }) => {
           <span>Check Family Tree</span>
         </button>
       ) : (
-        <div className="flex items-center justify-between text-[8px] text-slate-400 px-1 border-t border-slate-800/40 pt-1 mt-1">
-          <span className="flex items-center gap-0.5">
-            <span className="text-slate-600">G:</span> <span className="font-semibold text-slate-300 truncate max-w-[65px]">{gotram || 'N/A'}</span>
-          </span>
-          <span className="flex items-center gap-0.5">
-            <span className="text-slate-600">B:</span> <span className="font-semibold text-slate-300">{bloodGroup || 'N/A'}</span>
+        <div className="flex items-center justify-center text-[8px] text-slate-400 px-1 border-t border-slate-800/40 pt-1 mt-1">
+          <span className="flex items-center gap-1">
+            <span className="text-slate-500">Blood Group:</span> <span className="font-semibold text-slate-300">{bloodGroup || 'N/A'}</span>
           </span>
         </div>
+      )}
+      
+      {/* Collapse/Expand indicator for child branches */}
+      {hasChildren && onToggleCollapse && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCollapse(_id);
+          }}
+          className="absolute -bottom-2 left-[102px] z-10 w-4 h-4 bg-slate-900 border border-slate-800 text-[10px] font-black text-slate-400 hover:text-slate-200 hover:border-slate-650 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 cursor-pointer select-none"
+        >
+          {isCollapsed ? '+' : '-'}
+        </button>
       )}
     </div>
   );

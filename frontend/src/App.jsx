@@ -33,8 +33,161 @@ import {
   Compass,
   UserPlus,
   Edit2,
-  Trash2
+  Trash2,
+  Share2
 } from 'lucide-react';
+
+// Helper to generate and download a gorgeous high-fidelity member profile card image
+const handleShareCard = async (node) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 600;
+  canvas.height = 350;
+  const ctx = canvas.getContext('2d');
+
+  // 1. Background Gradient
+  const grad = ctx.createLinearGradient(0, 0, 600, 350);
+  grad.addColorStop(0, '#0f172a'); // slate-900
+  grad.addColorStop(1, '#020617'); // slate-950
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 600, 350);
+
+  // 2. Card Accent border / glow
+  const isMale = node.gender === 1;
+  ctx.strokeStyle = isMale ? 'rgba(59, 130, 246, 0.25)' : 'rgba(236, 72, 153, 0.25)';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(12, 12, 576, 326);
+
+  // Decorative header line
+  const accentGrad = ctx.createLinearGradient(12, 0, 588, 0);
+  if (isMale) {
+    accentGrad.addColorStop(0, '#3b82f6');
+    accentGrad.addColorStop(1, '#6366f1');
+  } else {
+    accentGrad.addColorStop(0, '#ec4899');
+    accentGrad.addColorStop(1, '#f43f5e');
+  }
+  ctx.fillStyle = accentGrad;
+  ctx.fillRect(12, 12, 576, 4);
+
+  // 3. Draw Watermark/Logo
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.font = '900 10px sans-serif';
+  ctx.fillText('SANGAM ROOTS FAMILY TREE', 35, 45);
+
+  // 4. Draw Avatar Profile Image (or Fallback initials)
+  const drawAvatar = () => {
+    return new Promise((resolve) => {
+      if (node.profilePictureUrl) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          ctx.save();
+          // Draw circular clip
+          ctx.beginPath();
+          ctx.arc(100, 180, 55, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(img, 45, 125, 110, 110);
+          ctx.restore();
+
+          // Border ring
+          ctx.strokeStyle = isMale ? '#3b82f6' : '#ec4899';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(100, 180, 55, 0, Math.PI * 2);
+          ctx.stroke();
+          resolve();
+        };
+        img.onerror = () => {
+          drawInitialsFallback();
+          resolve();
+        };
+        img.src = node.profilePictureUrl;
+      } else {
+        drawInitialsFallback();
+        resolve();
+      }
+    });
+  };
+
+  const drawInitialsFallback = () => {
+    ctx.fillStyle = isMale ? 'rgba(59, 130, 246, 0.15)' : 'rgba(236, 72, 153, 0.15)';
+    ctx.beginPath();
+    ctx.arc(100, 180, 55, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.strokeStyle = isMale ? 'rgba(59, 130, 246, 0.3)' : 'rgba(236, 72, 153, 0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(100, 180, 55, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = isMale ? '#60a5fa' : '#f472b6';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const initials = node.name ? node.name.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase() : '?';
+    ctx.fillText(initials, 100, 180);
+  };
+
+  await drawAvatar();
+
+  // 5. Draw Member Details
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  // Name
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText(node.name || 'Unknown', 185, 135);
+
+  // Role/Gender/Gen Info
+  ctx.fillStyle = '#94a3b8'; // slate-400
+  ctx.font = '11px sans-serif';
+  const genderStr = isMale ? 'Male' : 'Female';
+  ctx.fillText(`${genderStr}  •  Generation Level ${node.generationLevel}`, 185, 160);
+
+  // Divider line
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(185, 180);
+  ctx.lineTo(540, 180);
+  ctx.stroke();
+
+  // Detail Fields (Date of Birth, Blood Group, Gotram)
+  ctx.fillStyle = '#64748b'; // slate-500
+  ctx.font = 'bold 8.5px sans-serif';
+  ctx.fillText('DATE OF BIRTH', 185, 210);
+  ctx.fillText('BLOOD GROUP', 315, 210);
+  ctx.fillText('GOTRAM', 445, 210);
+
+  ctx.fillStyle = '#cbd5e1'; // slate-300
+  ctx.font = 'bold 12px sans-serif';
+  
+  const getDobFormatted = (dobString) => {
+    if (!dobString) return 'N/A';
+    const d = new Date(dobString);
+    if (isNaN(d.getTime())) return 'N/A';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  
+  ctx.fillText(getDobFormatted(node.dob), 185, 232);
+  ctx.fillText(node.bloodGroup || 'N/A', 315, 232);
+  ctx.fillText(node.gotram || 'N/A', 445, 232);
+
+  // Footer / Lineage watermark
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.font = 'italic 9.5px sans-serif';
+  ctx.fillText('Generated from Sangam Roots Family Tree Application', 185, 285);
+
+  // 6. Download Trigger
+  const dataUrl = canvas.toDataURL('image/png');
+  const link = document.createElement('a');
+  link.download = `${node.name.replace(/\s+/g, '_')}_Profile_Card.png`;
+  link.href = dataUrl;
+  link.click();
+};
 
 const App = () => {
   const { user, loading: authLoading, login, loginWithGoogle, register, reloadUser, logout, needVerification, forgotPassword } = useAuth();
@@ -727,108 +880,161 @@ const App = () => {
                 const canEdit = userRole === 'Admin' || userRole === 'Sub-Admin' || (userRole === 'Standard' && isCurrentUser);
                 const canAdd = userRole === 'Admin' || userRole === 'Sub-Admin';
                 const canDelete = userRole === 'Admin';
+                const isMale = selectedNode.gender === 1;
+                const initials = selectedNode.name ? selectedNode.name.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase() : '?';
+
+                let containerBorder = 'border-slate-800/80 bg-gradient-to-br from-slate-900/95 to-slate-950/95 shadow-slate-950/50';
+                let accentColor = 'from-emerald-500 to-teal-500';
+                if (selectedNode.isDeceased) {
+                  containerBorder = 'border-slate-850 bg-gradient-to-br from-slate-950/95 to-slate-900/90';
+                  accentColor = 'from-slate-600 to-slate-700';
+                } else if (isMale) {
+                  containerBorder = 'border-blue-500/20 bg-gradient-to-br from-slate-950 via-slate-950 to-blue-950/15 hover:border-blue-500/30';
+                  accentColor = 'from-blue-500 to-indigo-500';
+                } else {
+                  containerBorder = 'border-pink-500/20 bg-gradient-to-br from-slate-950 via-slate-950 to-pink-950/15 hover:border-pink-500/30';
+                  accentColor = 'from-pink-500 to-rose-500';
+                }
+
                 return (
-                  <div className="absolute top-[88px] right-4 z-10 w-[calc(100vw-32px)] sm:w-80 glass-heavy rounded-2xl p-4 shadow-2xl animate-slide-in-right text-slate-200">
-                    <div className="flex items-center justify-between pb-3 border-b border-slate-700/30 mb-3">
-                      <h3 className="section-label">Member Profile</h3>
-                      <button
-                        onClick={() => setSelectedNode(null)}
-                        className="text-slate-500 hover:text-slate-300 p-1 bg-surface-1/40 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                      >
-                        <X size={14} />
-                      </button>
+                  <div className={`absolute top-[88px] right-4 z-10 w-[calc(100vw-32px)] sm:w-80 border rounded-3xl p-5 shadow-2xl animate-slide-in-right text-slate-200 backdrop-blur-xl transition-all duration-300 ${containerBorder}`}>
+                    
+                    {/* Top Accent Gradient Bar */}
+                    <div className={`absolute top-0 left-0 right-0 h-[3px] rounded-t-3xl bg-gradient-to-r ${accentColor} opacity-90`} />
+
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-800/40 mb-4">
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">Member Profile</span>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleShareCard(selectedNode)}
+                          className="text-slate-400 hover:text-slate-100 p-1.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl transition-all active:scale-95 cursor-pointer flex items-center space-x-1"
+                          title="Download Profile Card Image"
+                        >
+                          <Share2 size={12} />
+                          <span className="text-[9px] font-bold">Card</span>
+                        </button>
+                        <button
+                          onClick={() => setSelectedNode(null)}
+                          className="text-slate-500 hover:text-slate-200 p-1.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl transition-all active:scale-95 cursor-pointer"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="space-y-3.5">
+                    <div className="space-y-4">
                       {/* Avatar & Header */}
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-3.5">
                         {selectedNode.profilePictureUrl ? (
                           <img
                             src={selectedNode.profilePictureUrl}
                             alt={selectedNode.name}
-                            className={`w-12 h-12 rounded-full object-cover border cursor-pointer hover:scale-105 active:scale-95 transition-transform duration-200 ${selectedNode.isDeceased ? 'grayscale border-slate-650' : 'border-slate-800'}`}
+                            className={`w-12 h-12 rounded-full object-cover border-2 cursor-pointer hover:scale-105 active:scale-95 transition-transform duration-200 shadow-md ${selectedNode.isDeceased ? 'grayscale border-slate-700' : (isMale ? 'border-blue-500/30' : 'border-pink-500/30')}`}
                             onClick={() => setPreviewImageUrl(selectedNode.profilePictureUrl)}
                           />
                         ) : (
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center border ${
-                            selectedNode.isDeceased ? 'bg-slate-950 border-slate-650 text-slate-400 grayscale' :
-                            (selectedNode.gender === 1 ? 'bg-blue-950/40 border-blue-500/20 text-blue-400' : 'bg-pink-950/40 border-pink-500/20 text-pink-400')
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center border border-dashed text-xs font-bold tracking-wider shadow-md ${
+                            selectedNode.isDeceased ? 'bg-slate-905 border-slate-800 text-slate-500 grayscale' :
+                            (isMale ? 'bg-blue-950/60 border-blue-500/20 text-blue-400' : 'bg-pink-950/60 border-pink-500/20 text-pink-400')
                           }`}>
-                            <User size={22} />
+                            {initials}
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
-                          <h4 className="text-sm font-bold text-slate-100 leading-tight truncate flex items-center">
-                            <span className="truncate">{selectedNode.name}</span>
+                          <h4 className="text-sm font-bold text-slate-100 leading-snug break-words flex flex-wrap items-center gap-1.5">
+                            <span>{selectedNode.name}</span>
                             {selectedNode.isDeceased && (
-                              <span className="ml-1.5 px-1 py-0.2 text-[8px] font-extrabold bg-slate-700 text-slate-300 rounded border border-slate-600 flex-shrink-0">
-                                Deceased
+                              <span className="px-1.5 py-0.5 text-[7px] font-extrabold bg-slate-800 text-slate-400 rounded-md border border-slate-700 flex-shrink-0 uppercase tracking-wide">
+                                Dec.
                               </span>
                             )}
                           </h4>
                           <p className="text-[11px] text-slate-400 mt-0.5">
-                            {selectedNode.gender === 1 ? 'Male' : 'Female'} • Gen Level {selectedNode.generationLevel}
+                            {isMale ? 'Male' : 'Female'} • Gen Level {selectedNode.generationLevel}
                           </p>
                         </div>
                       </div>
 
                       {/* Profile fields */}
-                      <div className="space-y-2.5 text-xs pt-1 border-t border-slate-800/40">
-                        <div className="flex items-start space-x-2">
+                      <div className="space-y-3 pt-3.5 border-t border-slate-800/40 text-xs">
+                        <div className="flex items-start space-x-2.5">
                           <Calendar size={13} className="text-slate-500 mt-0.5" />
                           <div>
-                            <span className="text-[10px] text-slate-500 block leading-none font-semibold">Date of Birth</span>
-                            <span className="text-slate-300 block mt-0.5">{getDobFormatted(selectedNode.dob)} ({getAge(selectedNode.dob, selectedNode.dateOfDeath, selectedNode.isDeceased)})</span>
+                            <span className="text-[10px] text-slate-500 block leading-none font-bold uppercase tracking-wider">Date of Birth</span>
+                            <span className="text-slate-350 block mt-0.5">{getDobFormatted(selectedNode.dob)} ({getAge(selectedNode.dob, selectedNode.dateOfDeath, selectedNode.isDeceased)})</span>
                           </div>
                         </div>
 
                         {selectedNode.isDeceased && (
-                          <div className="flex items-start space-x-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                          <div className="flex items-start space-x-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
                             <Calendar size={13} className="text-rose-500 mt-0.5" />
                             <div>
-                              <span className="text-[10px] text-rose-450 block leading-none font-semibold">Date of Death</span>
+                              <span className="text-[10px] text-rose-400 block leading-none font-bold uppercase tracking-wider">Date of Death</span>
                               <span className="text-slate-350 block mt-0.5">{getDobFormatted(selectedNode.dateOfDeath)}</span>
                             </div>
                           </div>
                         )}
 
-                        <div className="flex items-start space-x-2">
+                        <div className="flex items-start space-x-2.5">
                           <Compass size={13} className="text-slate-500 mt-0.5" />
                           <div>
-                            <span className="text-[10px] text-slate-500 block leading-none font-semibold">Gotram</span>
-                            <span className="text-slate-300 block mt-0.5">{selectedNode.gotram || 'N/A'}</span>
+                            <span className="text-[10px] text-slate-500 block leading-none font-bold uppercase tracking-wider">Gotram</span>
+                            <span className="text-slate-355 block mt-0.5">{selectedNode.gotram || 'N/A'}</span>
                           </div>
                         </div>
 
-                        <div className="flex items-start space-x-2">
+                        <div className="flex items-start space-x-2.5">
                           <Heart size={13} className="text-slate-500 mt-0.5" />
                           <div>
-                            <span className="text-[10px] text-slate-500 block leading-none font-semibold">Blood Group</span>
-                            <span className="text-slate-300 block mt-0.5">{selectedNode.bloodGroup || 'N/A'}</span>
+                            <span className="text-[10px] text-slate-500 block leading-none font-bold uppercase tracking-wider">Blood Group</span>
+                            <span className="text-slate-355 block mt-0.5">{selectedNode.bloodGroup || 'N/A'}</span>
                           </div>
                         </div>
 
-                        <div className="flex items-start space-x-2">
+                        <div className="flex items-start space-x-2.5">
                           <Smartphone size={13} className="text-slate-500 mt-0.5" />
-                          <div>
-                            <span className="text-[10px] text-slate-500 block leading-none font-semibold">Mobile Number</span>
-                            <span className="text-slate-300 block mt-0.5">{selectedNode.mobileNumber || 'N/A'}</span>
+                          <div className="flex-1">
+                            <span className="text-[10px] text-slate-500 block leading-none font-bold uppercase tracking-wider">Mobile Number</span>
+                            <div className="flex items-center justify-between mt-0.5">
+                              <span className="text-slate-355 block">{selectedNode.mobileNumber || 'N/A'}</span>
+                              {selectedNode.mobileNumber && (() => {
+                                const cleanNumber = selectedNode.mobileNumber.replace(/[^\d]/g, '');
+                                if (!cleanNumber) return null;
+                                const prefilledText = encodeURIComponent(`Hello${selectedNode.name ? ' ' + selectedNode.name : ''}, reaching out to you from Sangam Roots Family Tree!`);
+                                const waUrl = `https://wa.me/${cleanNumber}?text=${prefilledText}`;
+                                
+                                return (
+                                  <a
+                                    href={waUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center space-x-1 px-2.5 py-1 bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-500/20 hover:border-emerald-500/40 text-[9.5px] text-emerald-400 font-extrabold rounded-lg hover:scale-102 transition-all active:scale-95 cursor-pointer ml-2"
+                                    title="Chat on WhatsApp"
+                                  >
+                                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                                      <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.455L0 24zm6.59-4.846c1.6.95 3.488 1.459 5.407 1.46h.007c5.432 0 9.854-4.41 9.857-9.843.002-2.63-1.023-5.102-2.886-6.968C17.168 1.836 14.697.813 12.011.813c-5.437 0-9.859 4.41-9.862 9.843-.001 1.93.501 3.818 1.456 5.416l-.995 3.637 3.737-.98c1.61.877 3.415 1.341 5.25 1.343zm10.374-7.04c-.29-.145-1.713-.845-1.978-.942-.266-.097-.459-.145-.652.145-.193.29-.748.942-.917 1.135-.168.193-.337.217-.627.072-1.09-.546-1.819-1.02-2.541-2.262-.165-.284.165-.264.472-.876.085-.17.042-.317-.02-.462-.063-.146-.541-1.304-.741-1.787-.195-.47-.393-.404-.541-.412-.139-.007-.3-.008-.461-.008-.162 0-.427.06-.65.302-.224.24-.855.835-.855 2.036 0 1.2.875 2.36 1.0 2.528.123.167 1.723 2.63 4.174 3.687.583.25 1.038.4 1.393.513.585.186 1.118.16 1.539.097.47-.07 1.712-.7 1.953-1.376.24-.678.24-1.258.17-1.377-.073-.119-.265-.192-.556-.338z"/>
+                                    </svg>
+                                    <span>WhatsApp</span>
+                                  </a>
+                                );
+                              })()}
+                            </div>
                           </div>
                         </div>
 
-                        <div className="flex items-start space-x-2">
+                        <div className="flex items-start space-x-2.5">
                           <Mail size={13} className="text-slate-500 mt-0.5" />
                           <div>
-                            <span className="text-[10px] text-slate-500 block leading-none font-semibold">Email Address</span>
-                            <span className="text-slate-300 block mt-0.5">{selectedNode.email || 'N/A'}</span>
+                            <span className="text-[10px] text-slate-500 block leading-none font-bold uppercase tracking-wider">Email Address</span>
+                            <span className="text-slate-355 block mt-0.5">{selectedNode.email || 'N/A'}</span>
                           </div>
                         </div>
 
                         {selectedNode.socialLinks && selectedNode.socialLinks.length > 0 && (
-                          <div className="flex items-start space-x-2">
+                          <div className="flex items-start space-x-2.5">
                             <Link2 size={13} className="text-slate-500 mt-0.5" />
                             <div className="min-w-0 flex-1">
-                              <span className="text-[10px] text-slate-500 block leading-none font-semibold mb-1">Social Profiles</span>
+                              <span className="text-[10px] text-slate-500 block leading-none font-bold uppercase tracking-wider mb-1">Social Profiles</span>
                               <div className="space-y-0.5">
                                 {selectedNode.socialLinks.map((link, idx) => (
                                   <a
@@ -846,9 +1052,9 @@ const App = () => {
                           </div>
                         )}
 
-                        <div className="bg-slate-950/60 p-2 rounded-xl border border-slate-800 flex justify-between items-center text-[10px] font-mono mt-1">
-                          <span className="text-slate-500 font-bold uppercase">Kinship Parity</span>
-                          <span className={`px-2 py-0.5 rounded font-extrabold ${selectedNode.parity === 1 ? 'bg-indigo-950 text-indigo-400 border border-indigo-500/10' : 'bg-amber-950 text-amber-400 border border-amber-500/10'}`}>
+                        <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-850 flex justify-between items-center text-[10px] font-mono mt-2 shadow-inner">
+                          <span className="text-slate-400 font-bold uppercase tracking-wider">Kinship Parity</span>
+                          <span className={`px-2 py-0.5 rounded-md font-extrabold tracking-wider ${selectedNode.parity === 1 ? 'bg-indigo-950 text-indigo-400 border border-indigo-500/20' : 'bg-amber-950 text-amber-400 border border-amber-500/20'}`}>
                             STATE {selectedNode.parity}
                           </span>
                         </div>
@@ -1212,6 +1418,7 @@ const App = () => {
                 layoutDirection={layoutDirection}
                 onViewImage={(url) => setPreviewImageUrl(url)}
                 onViewCrossTree={handleViewCrossTree}
+                selectedNode={selectedNode}
               />
               {graphCenterNodeId && (
                 <button
