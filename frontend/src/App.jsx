@@ -1101,7 +1101,7 @@ const App = () => {
                 const canAdd = userRole === 'Admin' || userRole === 'Sub-Admin';
                 const canDelete = userRole === 'Admin';
                 return (
-                  <div className="absolute top-[88px] right-4 z-10 w-[calc(100vw-32px)] sm:w-80 glass-heavy rounded-2xl p-4 shadow-2xl animate-slide-in-right text-slate-200 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
+                  <div className="absolute top-[88px] right-4 z-10 w-[calc(100vw-32px)] sm:w-80 glass-heavy rounded-2xl p-4 shadow-2xl animate-slide-in-right text-slate-200 max-h-[78vh] overflow-y-auto custom-scrollbar">
                     <div className="flex items-center justify-between pb-3 border-b border-slate-700/30 mb-3">
                       <h3 className="section-label">Member Profile</h3>
                       <button
