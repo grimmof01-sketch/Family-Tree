@@ -172,10 +172,10 @@ const App = () => {
     }
   };
 
-  // Auto-close sidebar on mobile when active tree changes
+  // Auto-close sidebar on mobile when active tree changes or current view changes
   useEffect(() => {
     setMobileSidebarOpen(false);
-  }, [activeTreeId]);
+  }, [activeTreeId, currentView]);
 
   // Layout direction
   const [layoutDirection, setLayoutDirection] = useState('TB'); // 'TB' or 'LR'
@@ -1019,18 +1019,12 @@ const App = () => {
       />
 
       <div className="flex flex-1 overflow-hidden relative">
-        {currentView === 'profile' ? (
-          <Profile />
-        ) : currentView === 'superadmin' ? (
-          <SuperAdminDashboard />
-        ) : (
-          <>
-        
-        {/* 2. SIDEBAR (Collapsible drawer on mobile, side panel on desktop) */}
+        {/* 2. SIDEBAR (Collapsible drawer on mobile, z-index and visibility set highest) */}
         <div 
           className={`
-            fixed md:relative top-[60px] md:top-0 left-0 z-20 md:z-auto h-[calc(100vh-60px)] md:h-auto 
+            fixed md:relative top-[60px] md:top-0 left-0 z-[100] md:z-auto h-[calc(100vh-60px)] md:h-auto 
             transition-transform duration-300 ease-in-out md:translate-x-0 flex flex-col flex-shrink-0
+            ${currentView !== 'tree' ? 'md:hidden' : ''}
             ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
           `}
         >
@@ -1082,9 +1076,16 @@ const App = () => {
         {mobileSidebarOpen && (
           <div 
             onClick={() => setMobileSidebarOpen(false)}
-            className="md:hidden fixed inset-0 bg-surface-0/60 backdrop-blur-sm z-10 top-[60px] cursor-pointer"
+            className="md:hidden fixed inset-0 bg-surface-0/60 backdrop-blur-sm z-[90] top-[60px] cursor-pointer"
           />
         )}
+
+        {currentView === 'profile' ? (
+          <Profile />
+        ) : currentView === 'superadmin' ? (
+          <SuperAdminDashboard />
+        ) : (
+          <>
 
         {/* 3. MAIN CANVAS AREA */}
         <div className="flex-1 h-full relative">
@@ -1100,7 +1101,7 @@ const App = () => {
                 const canAdd = userRole === 'Admin' || userRole === 'Sub-Admin';
                 const canDelete = userRole === 'Admin';
                 return (
-                  <div className="absolute top-[88px] right-4 z-10 w-[calc(100vw-32px)] sm:w-80 glass-heavy rounded-2xl p-4 shadow-2xl animate-slide-in-right text-slate-200">
+                  <div className="absolute top-[88px] right-4 z-10 w-[calc(100vw-32px)] sm:w-80 glass-heavy rounded-2xl p-4 shadow-2xl animate-slide-in-right text-slate-200 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
                     <div className="flex items-center justify-between pb-3 border-b border-slate-700/30 mb-3">
                       <h3 className="section-label">Member Profile</h3>
                       <button
@@ -1130,10 +1131,10 @@ const App = () => {
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
-                          <h4 className="text-sm font-bold text-slate-100 leading-tight truncate flex items-center">
-                            <span className="truncate">{selectedNode.name}</span>
+                          <h4 className="text-sm font-bold text-slate-100 leading-tight flex flex-wrap items-center break-words w-full">
+                            <span className="break-words w-full block">{selectedNode.name}</span>
                             {selectedNode.isDeceased && (
-                              <span className="ml-1.5 px-1 py-0.2 text-[8px] font-extrabold bg-slate-700 text-slate-300 rounded border border-slate-600 flex-shrink-0">
+                              <span className="mt-1 px-1 py-0.2 text-[8px] font-extrabold bg-slate-700 text-slate-300 rounded border border-slate-600 inline-block">
                                 Deceased
                               </span>
                             )}
