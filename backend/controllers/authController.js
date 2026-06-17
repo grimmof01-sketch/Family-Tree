@@ -68,22 +68,7 @@ const loginUser = async (req, res) => {
     const user = await User.findOne({ email });
 
     if (user && (await bcrypt.compare(password, user.passwordHash))) {
-      // Check for active session
-      if (user.currentSessionToken && user.lastActive) {
-        const timeout = 5 * 60 * 1000; // 5 minutes
-        const lastActiveTime = new Date(user.lastActive).getTime();
-        if (!isNaN(lastActiveTime) && (Date.now() - lastActiveTime) < timeout) {
-          let requestToken = null;
-          if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-            requestToken = req.headers.authorization.split(' ')[1];
-          }
-          if (requestToken && requestToken === user.currentSessionToken) {
-            // Same session - bypass check
-          } else {
-            return res.status(400).json({ message: 'Account is already logged in on another device. Please logout first, or wait for inactivity timeout.' });
-          }
-        }
-      }
+      // A new login attempt automatically invalidates any existing session on other devices/tabs
 
       const token = generateToken(user.id);
       user.currentSessionToken = token;
@@ -361,22 +346,7 @@ const googleLogin = async (req, res) => {
         activeTrees: []
       });
     } else {
-      // Check for active session
-      if (user.currentSessionToken && user.lastActive) {
-        const timeout = 5 * 60 * 1000; // 5 minutes
-        const lastActiveTime = new Date(user.lastActive).getTime();
-        if (!isNaN(lastActiveTime) && (Date.now() - lastActiveTime) < timeout) {
-          let requestToken = null;
-          if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-            requestToken = req.headers.authorization.split(' ')[1];
-          }
-          if (requestToken && requestToken === user.currentSessionToken) {
-            // Same session - bypass check
-          } else {
-            return res.status(400).json({ message: 'Account is already logged in on another device. Please logout first, or wait for inactivity timeout.' });
-          }
-        }
-      }
+      // A new login attempt automatically invalidates any existing session on other devices/tabs
     }
 
     const token = generateToken(user.id);
@@ -441,22 +411,7 @@ const firebaseLogin = async (req, res) => {
     }
 
     if (user) {
-      // Check for active session
-      if (user.currentSessionToken && user.lastActive) {
-        const timeout = 5 * 60 * 1000; // 5 minutes
-        const lastActiveTime = new Date(user.lastActive).getTime();
-        if (!isNaN(lastActiveTime) && (Date.now() - lastActiveTime) < timeout) {
-          let requestToken = null;
-          if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-            requestToken = req.headers.authorization.split(' ')[1];
-          }
-          if (requestToken && requestToken === user.currentSessionToken) {
-            // Same session - bypass check
-          } else {
-            return res.status(400).json({ message: 'Account is already logged in on another device. Please logout first, or wait for inactivity timeout.' });
-          }
-        }
-      }
+      // A new login attempt automatically invalidates any existing session on other devices/tabs
     }
 
     if (!user) {

@@ -32,12 +32,13 @@ export const AuthProvider = ({ children }) => {
     return () => window.removeEventListener('auth-unauthorized', handleUnauthorized);
   }, []);
 
-  // Log out the user on the backend on page unload (refresh, tab close, navigation)
+  // Log out the user on the backend on page unload (refresh, tab close, navigation, back button)
   useEffect(() => {
     const handleUnload = () => {
       const token = api.getToken();
       if (token) {
-        fetch('https://family-tree-lica.onrender.com/api/auth/logout', {
+        const baseUrl = api.getBaseUrl();
+        fetch(`${baseUrl}/auth/logout`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -46,11 +47,25 @@ export const AuthProvider = ({ children }) => {
           },
           keepalive: true
         }).catch(() => {});
+        
+        // Immediately invalidate local states to ensure that if the browser restores this page from
+        // back/forward cache (bfcache), the user is seen as logged out instead of showing a stale UI.
+        api.setToken(null);
+        setUser(null);
+        setFbUser(null);
+        signOut(auth).catch(() => {});
       }
     };
 
     window.addEventListener('beforeunload', handleUnload);
-    return () => window.removeEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+    window.addEventListener('unload', handleUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+      window.removeEventListener('unload', handleUnload);
+    };
   }, []);
 
   const fetchUser = async () => {

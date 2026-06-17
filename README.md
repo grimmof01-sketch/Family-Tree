@@ -9,11 +9,14 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> •
+  <a href="#overview">Overview</a> •
+  <a href="#detailed-description">Detailed Description</a> •
   <a href="#tech-stack">Tech Stack</a> •
+  <a href="#security-enforcements">Security Enforcements</a> •
   <a href="#getting-started">Getting Started</a> •
   <a href="#project-structure">Project Structure</a> •
   <a href="#api-reference">API Reference</a> •
+  <a href="#future-development-roadmap">Roadmap</a> •
   <a href="#license">License</a>
 </p>
 
@@ -21,78 +24,74 @@
 
 ## Overview
 
-**Sangam Roots** is a full-stack web application for building, visualizing, and managing family trees using Dravidian kinship logic. It features an interactive graph-based tree visualization, a kinship calculator that determines exact relationship terms between any two family members, role-based access control, cross-tree family linking through marriages, and real-time activity logging.
+**Sangam Roots** is a full-stack web application designed for building, visualizing, and managing family trees governed by Dravidian kinship systems. Unlike typical Western genealogies, the Dravidian system classifies relatives into parallel and cross categories based on lineage parity. This application features a custom mathematical engine that resolves kinship relationships, provides visual interactive graphs using React Flow, manages secure user accounts and roles, and facilitates cross-tree spouse linking.
 
 ---
 
-## Features
+## Detailed Description
 
-### 🌳 Interactive Family Tree Visualization
-- Graph-based tree rendering powered by **React Flow** and **Dagre** auto-layout
-- Drag-and-pan canvas with zoom controls, minimap, and fit-to-view
-- Gender-differentiated node styling (blue for male, pink for female)
-- Visual indicators for deceased members, search highlights, and relation tracing
+Dravidian kinship is characterized by its bifurcate merging structure and descent rules. Relatives are divided into two main categories:
+1. **Parallel Kin**: Siblings, father's brothers, mother's sisters, and parallel cousins (father's brother's children or mother's sister's children). Parallel cousins are conceptually classified as brothers and sisters, and marriage among them is strictly taboo.
+2. **Cross Kin**: Mother's brothers, father's sisters, and cross cousins (father's sister's children or mother's brother's children). Cross cousins are eligible marriage partners.
 
-### 🔗 Kinship Calculator
-- Determine the exact Dravidian kinship term between any two members
-- Supports parity-based relationship resolution
-- Traces relationship paths through the tree graph
+**Sangam Roots** mathematically computes relationship terms between any two nodes in a family tree using parity-based graph traversal. It traces paths, calculates generation difference and gender parity, and resolves the correct Dravidian kinship term (e.g., *Anna* / *Thambi* for parallel brother, *Maman* for maternal uncle, *Machan* for cross-cousin). 
 
-### 👥 Role-Based Access Control
-- **Admin** — Full control: create/delete trees, manage members, assign roles, approve join requests
-- **Sub-Admin** — Can add/edit members and manage nodes
-- **Standard** — View-only access with the ability to edit their own linked profile
-
-### 🌐 Cross-Tree Linking
-- Link families across different trees through spousal connections
-- Navigate seamlessly between linked family trees
-- Imported spouse nodes display a "Check Family Tree" button to jump to the origin tree
-
-### 📋 Activity Logging & Revert
-- All tree modifications are logged with timestamps and user attribution
-- Admins and Sub-Admins can revert changes from the activity history panel
-
-### 🔔 Notifications
-- Birthday and anniversary reminders for family members
-- 30-day lookahead for upcoming events
-- Mark-as-read functionality with unread count badges
-
-### 🔐 Authentication
-- Email/password registration with Firebase email verification
-- Google OAuth sign-in
-- Password reset via email
-- JWT-based session management with auto-expiry
-
-### 👤 Universal Profile & Sync
-- Centralized user profile with personal details, profile picture upload, and social links
-- Granular sync preferences — choose which fields auto-copy to your assigned tree node
-- Profile picture upload via Google Drive integration
+### Key Capabilities:
+- **Interactive Graphing**: Drag-and-pan canvas rendered via React Flow. Nodes are organized dynamically using the Dagre layout algorithm.
+- **Cross-Tree Spousal Linking**: When members of different family trees marry, administrators can link the spouse node to their original family tree, allowing seamless cross-tree navigation.
+- **Universal Profiles & In-Memory Authentication**: Allows users to manage a centralized profile and choose which fields automatically synchronize with their corresponding node in the family tree.
+- **Activity Logging & Revert Actions**: Every modification (adding nodes, marriages, spouse links) is audited. Admins can roll back actions from the activity history panel.
 
 ---
 
 ## Tech Stack
 
 ### Frontend
-| Technology | Purpose |
-|---|---|
-| **React 19** | UI framework |
-| **Vite** | Build tool and dev server |
-| **Tailwind CSS** | Utility-first styling with custom design system |
-| **React Flow** | Interactive graph/tree visualization |
-| **Dagre** | Automatic graph layout algorithm |
-| **Lucide React** | Icon library |
-| **Firebase SDK** | Client-side authentication |
+- **React 19** — User interface rendering
+- **Vite** — Fast building and local development server
+- **Tailwind CSS** — Utility-first styling with custom design tokens
+- **React Flow** — Node-based graph canvas for family tree visualization
+- **Dagre** — Automatic hierarchical graph layout calculation
+- **Firebase client SDK** — User authentication verification
 
 ### Backend
-| Technology | Purpose |
-|---|---|
-| **Node.js + Express** | REST API server |
-| **MongoDB + Mongoose** | Database and ODM |
-| **Firebase Admin SDK** | Server-side auth verification |
-| **JWT (jsonwebtoken)** | Session token management |
-| **Google APIs** | Google Drive file uploads (profile pictures) |
-| **bcryptjs** | Password hashing |
-| **express-mongo-sanitize** | Input sanitization |
+- **Node.js + Express** — REST API routing and logic
+- **MongoDB + Mongoose** — Document database and Object Data Modeling (ODM)
+- **Firebase Admin SDK** — Verification of client-side authentication tokens
+- **Google API Client** — Google Drive upload integration for profile pictures
+
+---
+
+## Security Enforcements
+
+The application is hardened against major OWASP security vulnerabilities:
+
+### 1. SQL Injection & NoSQL Injection Protection
+* **Defense**: Built-in immunity to SQL Injection by utilizing **MongoDB** instead of SQL databases. 
+* **Mechanism**: To prevent NoSQL query operator injection (such as bypassing login using `{ "$gt": "" }`), the backend applies a global recursive sanitization middleware ([sanitize.js](file:///home/grimm/dravidian-kinship-tree/backend/middleware/sanitize.js)). It strips keys starting with `$` or containing `.` from all incoming `body`, `query`, and `params` inputs before they reach the database queries.
+
+### 2. Cross-Site Scripting (XSS) Prevention
+* **Defense**: React automatically escapes text contents rendered inside JSX brackets, neutralizing typical script injection.
+* **Mechanism**: We do not use `dangerouslySetInnerHTML`. Furthermore, user-submitted URLs (social media and profile photos) are filtered using helper functions that prepend `https://` if an `http` prefix is not present. This prevents the execution of malicious `javascript:` URI schemes.
+
+### 3. DDoS (Distributed Denial of Service) Shielding
+* **Defense**: Infrastructure-level shielding provided by **Render** proxy gateways. 
+* **Mechanism**: Limits concurrent connections and filters malformed request headers. Rate limits are additionally enforced at the application level to defend resource-intensive endpoints.
+
+### 4. Credential Stuffing & Brute Force Protection
+* **Defense**: IP-based rate limiting on sensitive routes.
+* **Mechanism**: A custom sliding-window rate-limiting middleware ([rateLimiter.js](file:///home/grimm/dravidian-kinship-tree/backend/middleware/rateLimiter.js)) is active on all authentication endpoints (`/api/auth/register`, `/api/auth/login`, `/api/auth/google`, `/api/auth/firebase-login`). It permits a maximum of 15 authentication attempts per 5 minutes per IP, blocking automated botnets and scanners.
+
+### 5. Session Proxying & Token Hijack Protection
+* **Defense**: Safe in-memory frontend storage.
+* **Mechanism**: The auth token is stored only in-memory (`authToken` in JavaScript state) and is never written to `localStorage` or persistent cookies, preventing token extraction via browser vulnerabilities.
+* **Mechanism**: HTTPS/SSL is strictly enforced in transit.
+* **Mechanism**: Single active session rules are enforced. A new login automatically overwrites `currentSessionToken` in the database. Any existing session on another tab or device immediately fails token matching in the auth middleware ([auth.js](file:///home/grimm/dravidian-kinship-tree/backend/middleware/auth.js)) and gets ejected.
+
+### 6. Malware Upload Protection
+* **Defense**: Memory-based file uploads and strict MIME validation.
+* **Mechanism**: File uploads are processed using Multer's `memoryStorage`. No files are written to the web server's local disk, blocking LFI or local shell execution.
+* **Mechanism**: A `fileFilter` in `multer` restricts uploads strictly to image formats (`image/*`), rejecting malicious binaries, executables, or scripts.
 
 ---
 
@@ -100,34 +99,46 @@
 
 ### Prerequisites
 
+To run the backend and frontend locally, the following modules and credentials are required:
+
 - **Node.js** v18+ and **npm**
-- **MongoDB** (Atlas cloud instance or local)
-- **Firebase** project with Authentication enabled (Email/Password + Google providers)
-- **Google Cloud** service account with Drive API access (for profile picture uploads)
+- **MongoDB** Atlas database instance or a running local MongoDB instance
+- **Firebase Project** with Authentication enabled (Email/Password + Google sign-in)
+- **Firebase Admin SDK credentials** saved as `backend/service-account.json`
+- **Google Cloud Console Service Account** with Google Drive API enabled (for image hosting)
+
+### Backend Dependencies
+The backend requires the following npm packages, which will be installed automatically:
+- `express` — Web framework
+- `mongoose` — Database connection
+- `bcryptjs` — Local credential password hashing
+- `jsonwebtoken` — JWT token generation
+- `multer` — Multi-part form-data parsing for uploads
+- `cors` — Cross-Origin Resource Sharing configuration
+- `dotenv` — Environment configuration loading
+- `firebase-admin` — Firebase authentication token verification
+- `googleapis` — Google Drive file uploading
 
 ### 1. Clone the Repository
-
 ```bash
 git clone https://github.com/your-username/Family-Tree.git
 cd Family-Tree
 ```
 
 ### 2. Backend Setup
-
 ```bash
 cd backend
 npm install
 ```
 
-Create a `.env` file in `backend/` with the following variables:
-
+Create a `.env` file in the `backend/` directory:
 ```env
 PORT=5000
 JWT_SECRET=your_jwt_secret_key
 NODE_ENV=development
 MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>
 
-# Firebase Service Account (for server-side auth)
+# Firebase Service Account Credentials (matching firebase-admin config)
 FIREBASE_TYPE=service_account
 FIREBASE_PROJECT_ID=your-project-id
 FIREBASE_PRIVATE_KEY_ID=your-private-key-id
@@ -137,34 +148,31 @@ FIREBASE_CLIENT_ID=your-client-id
 FIREBASE_AUTH_URI=https://accounts.google.com/o/oauth2/auth
 FIREBASE_TOKEN_URI=https://oauth2.googleapis.com/token
 
-# Google Drive (for profile picture uploads)
+# Google Drive API configuration (for profile pictures)
 GOOGLE_DRIVE_FOLDER_ID=your_drive_folder_id
 ```
 
+Make sure your Google Service Account key file is saved as `backend/service-account.json`.
+
 Start the backend:
-
-```bash
-node server.js
-```
-
-The server will start on `http://localhost:5000`.
-
-### 3. Frontend Setup
-
-```bash
-cd frontend
-npm install
-```
-
-The frontend uses Firebase client-side SDK. Configure your Firebase project credentials in `frontend/src/utils/firebase.js`.
-
-Start the dev server:
-
 ```bash
 npm run dev
 ```
+The server will start on `http://localhost:5000`.
 
-The app will be available at `http://localhost:5173`.
+### 3. Frontend Setup
+```bash
+cd ../frontend
+npm install
+```
+
+Configure your Firebase client credentials inside [firebase.js](file:///home/grimm/dravidian-kinship-tree/frontend/src/utils/firebase.js).
+
+Start the development server:
+```bash
+npm run dev
+```
+The application will be available at `http://localhost:5173`.
 
 ---
 
@@ -176,62 +184,39 @@ Family-Tree/
 │   ├── config/
 │   │   └── db.js                # MongoDB connection setup
 │   ├── controllers/
-│   │   ├── authController.js    # Auth logic (register, login, profile)
-│   │   ├── kinshipController.js # Kinship calculation engine
+│   │   ├── authController.js    # Authentication and profiles
+│   │   ├── kinshipController.js # Kinship engine and calculator
 │   │   ├── superadminController.js
-│   │   └── treeController.js    # Tree CRUD, node/edge management
+│   │   └── treeController.js    # Tree management and CRUD
 │   ├── middleware/
-│   │   ├── auth.js              # JWT verification middleware
-│   │   └── sanitize.js          # Input sanitization
+│   │   ├── auth.js              # JWT session matching middleware
+│   │   ├── rateLimiter.js       # sliding-window brute force protection
+│   │   └── sanitize.js          # NoSQL query operator scrubbing
 │   ├── models/
-│   │   ├── ActivityLog.js       # Tree modification audit log
-│   │   ├── Edge.js              # Relationship edges (parent-child, spouse)
-│   │   ├── JoinRequest.js       # Pending tree join requests
-│   │   ├── Node.js              # Family member nodes
-│   │   ├── Notification.js      # Birthday/anniversary notifications
-│   │   ├── Tree.js              # Family tree metadata
-│   │   └── User.js              # User accounts & profiles
+│   │   ├── ActivityLog.js
+│   │   ├── Edge.js              # Relationships (parent-child, spouse)
+│   │   ├── JoinRequest.js
+│   │   ├── Node.js              # Tree nodes (family members)
+│   │   ├── Notification.js
+│   │   ├── Tree.js
+│   │   └── User.js              # User profiles and settings
 │   ├── routes/
-│   │   ├── auth.js              # /api/auth/*
-│   │   ├── kinship.js           # /api/kinship/*
-│   │   ├── superadmin.js        # /api/superadmin/*
-│   │   └── trees.js             # /api/trees/*
-│   ├── utils/
-│   │   └── telegramPolling.js   # (Deprecated) Telegram bot integration
+│   │   ├── auth.js
+│   │   ├── kinship.js
+│   │   ├── superadmin.js
+│   │   └── trees.js
 │   ├── server.js                # Express app entry point
 │   └── package.json
-│
 ├── frontend/
-│   ├── public/
-│   │   └── fist.png             # App logo/favicon
 │   ├── src/
-│   │   ├── components/
-│   │   │   ├── Canvas.jsx       # React Flow tree visualization
-│   │   │   ├── CustomNode.jsx   # Family member node component
-│   │   │   ├── LandingPage.jsx  # Public landing page with auth forms
-│   │   │   ├── MailVerification.jsx # Email verification flow
-│   │   │   ├── Navbar.jsx       # Top navigation bar
-│   │   │   ├── NodeModal.jsx    # Add/edit member modal
-│   │   │   ├── NotificationViewModal.jsx
-│   │   │   ├── Profile.jsx      # User profile management
-│   │   │   ├── RolesModal.jsx   # Role & join request management
-│   │   │   ├── Sidebar.jsx      # Sidebar with search, filters, logs
-│   │   │   └── SuperAdminDashboard.jsx
+│   │   ├── components/          # UI Components
 │   │   ├── context/
-│   │   │   └── AuthContext.jsx  # Global auth state provider
+│   │   │   └── AuthContext.jsx  # Auth event listeners (pagehide/unload)
 │   │   ├── utils/
-│   │   │   ├── api.js           # API client (axios wrapper)
-│   │   │   └── firebase.js      # Firebase client initialization
-│   │   ├── App.jsx              # Root application component
-│   │   ├── App.css
-│   │   ├── index.css            # Global design system & utilities
-│   │   └── main.jsx             # React entry point
-│   ├── index.html
-│   ├── tailwind.config.js       # Tailwind design tokens
-│   ├── vite.config.js
+│   │   │   ├── api.js           # Fetch wrapper with dynamic backend URL
+│   │   │   └── firebase.js      # In-memory Firebase SDK persistence
+│   │   └── App.jsx
 │   └── package.json
-│
-└── README.md
 ```
 
 ---
@@ -241,75 +226,50 @@ Family-Tree/
 ### Authentication — `/api/auth`
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/register` | Register with email/password |
-| `POST` | `/login` | Login with email/password |
-| `POST` | `/firebase-login` | Login via Firebase ID token |
-| `POST` | `/logout` | Invalidate session |
-| `GET` | `/me` | Get current user profile |
-| `PUT` | `/profile` | Update profile & sync settings |
-| `POST` | `/upload-profile-picture` | Upload avatar to Google Drive |
+| `POST` | `/register` | Register an account (rate limited) |
+| `POST` | `/login` | Login with credentials (rate limited) |
+| `POST` | `/google` | Google sign-in auth (rate limited) |
+| `POST` | `/firebase-login` | Verify Firebase ID token (rate limited) |
+| `POST` | `/logout` | Terminate session and invalidate JWT |
+| `GET` | `/me` | Get current verified user profile |
+| `PUT` | `/profile` | Edit user profile and sync options |
+| `POST` | `/upload` | Upload picture buffer to Google Drive (image validation) |
 
 ### Trees — `/api/trees`
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/` | Create a new family tree |
-| `GET` | `/` | List user's accessible trees |
-| `GET` | `/:treeId` | Get tree with all nodes and edges |
-| `DELETE` | `/:treeId` | Delete a tree (Admin only) |
-| `POST` | `/:treeId/nodes` | Add a member node |
-| `PUT` | `/:treeId/nodes/:nodeId` | Edit a member node |
-| `DELETE` | `/:treeId/nodes/:nodeId` | Delete a member node |
-| `POST` | `/:treeId/edges` | Create a relationship edge |
-| `POST` | `/join` | Request to join a tree by ID |
-| `GET` | `/:treeId/join-requests` | List pending join requests |
-| `PUT` | `/:treeId/join-requests/:requestId` | Approve/reject a request |
-| `GET` | `/:treeId/logs` | Get activity logs |
-| `POST` | `/:treeId/logs/:logId/revert` | Revert a logged action |
+| `POST` | `/` | Create a family tree |
+| `GET` | `/` | Retrieve accessible trees for user |
+| `GET` | `/:treeId` | Get full tree structure (nodes and edges) |
+| `DELETE` | `/:treeId` | Delete a family tree (Admin only) |
 
-### Kinship — `/api/kinship`
+### Kinship Operations — `/api/kinship`
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/:treeId/relation/:nodeA/:nodeB` | Calculate kinship between two nodes |
-
-### SuperAdmin — `/api/superadmin`
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/users` | List all users (SuperAdmin only) |
-| `PUT` | `/users/:userId/role` | Change a user's global role |
+| `POST` | `/:treeId/nodes` | Create a member node |
+| `POST` | `/:treeId/nodes/spouse` | Add spouse node (with cross-tree checks) |
+| `POST` | `/:treeId/edges/marriage` | Create a marriage link |
+| `POST` | `/:treeId/edges/parent-child` | Create a parent-child relationship |
+| `GET` | `/:treeId/relation` | Calculate exact kinship terms between two members |
+| `POST` | `/:treeId/logs/:logId/revert` | Roll back an action from history |
+| `GET` | `/:treeId/notifications` | Fetch birthday and anniversary alerts |
 
 ---
 
-## Data Models
+## Future Development Roadmap
 
-### Node (Family Member)
-```
-name, gender, dob, dateOfDeath, isDeceased, bloodGroup, gotram,
-generationLevel, parity, profilePictureUrl, mobileNumber, email,
-socialLinks[], linkedUserId, crossTreeLinkId, treeId
-```
+We plan to implement the following features in future versions of **Sangam Roots**:
 
-### Edge (Relationship)
-```
-sourceNodeId, targetNodeId, relationshipType (parent_child | spouse), treeId
-```
-
-### Tree
-```
-treeName, createdBy, admins[], subAdmins[], members[]
-```
-
----
-
-## Design System
-
-The frontend uses a custom design system built on top of Tailwind CSS:
-
-- **Color Palette** — Dark slate backgrounds (`#020617` → `#334155`) with emerald/teal accents
-- **Typography** — Inter (UI) + JetBrains Mono (code/IDs)
-- **Glassmorphism** — `.glass`, `.glass-heavy`, `.glass-light` utility classes
-- **Component Classes** — `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.btn-ghost`, `.input-field`, `.card`, `.badge-*`, `.section-label`
-- **Animations** — `fade-in`, `fade-in-up`, `slide-up`, `float`, `glow-pulse`, `shimmer`
-- **Shadows** — `glow-sm/md/lg/xl` for emerald glow effects
+1. **Dravidian Marriage Eligibility Checker**: 
+   An algorithmic rules engine that checks selected nodes and warns/informs user whether a marriage complies with Dravidian kinship rules (e.g., checks parity classification to ensure partners are cross-cousins and not parallel cousins).
+2. **Advanced Descent Visualizations**:
+   Add filter overlays to highlight specific lineages separately (such as highlighting matrilineal vs. patrilineal inheritance lines in different colors).
+3. **Offline-First Tree Editing**:
+   Implement LocalStorage/IndexedDB state saving on the frontend so users can make drafts or edit family trees offline, syncing changes to MongoDB once network reconnects.
+4. **Automated Notification Delivery**:
+   Integrate Twilio (SMS) or SendGrid (Email) to send automated alerts for birthdays, anniversaries, and join requests directly to family members.
+5. **Interactive Kinship Game / Walkthrough**:
+   An interactive tutorial showing step-by-step how Dravidian kinship terms are resolved for different members, preserving anthropological knowledge for younger generations.
 
 ---
 

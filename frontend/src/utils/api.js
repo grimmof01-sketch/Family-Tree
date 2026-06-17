@@ -85,6 +85,9 @@ export const api = {
   getToken: () => {
     return authToken;
   },
+  getBaseUrl: () => {
+    return cachedWorkingBaseUrl || API_URLS[0];
+  },
   // Auth endpoints
   auth: {
     register: async (email, password) => {

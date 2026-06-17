@@ -23,10 +23,17 @@ const {
 } = require('../controllers/notificationController');
 const { protect } = require('../middleware/auth');
 
-// Multer memory storage setup (limit: 5MB)
+// Multer memory storage setup (limit: 5MB, images only)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'), false);
+    }
+  }
 });
 
 router.use(protect);
