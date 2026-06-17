@@ -313,6 +313,13 @@ export const api = {
       });
       return handleResponse(res);
     },
+    checkMarriageEligibility: async (treeId, nodeAId, nodeBId) => {
+      const res = await apiFetch(`/kinship/${treeId}/marriage-eligibility?nodeAId=${nodeAId}&nodeBId=${nodeBId}`, {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+      return handleResponse(res);
+    },
     uploadImage: async (treeId, file) => {
       const formData = new FormData();
       formData.append('image', file);
@@ -361,6 +368,13 @@ export const api = {
     markAllNotificationsRead: async (treeId) => {
       const res = await apiFetch(`/kinship/${treeId}/notifications/read-all`, {
         method: 'PUT',
+        headers: getHeaders(),
+      });
+      return handleResponse(res);
+    },
+    getDeliveryLogs: async (treeId) => {
+      const res = await apiFetch(`/kinship/${treeId}/delivery-logs`, {
+        method: 'GET',
         headers: getHeaders(),
       });
       return handleResponse(res);

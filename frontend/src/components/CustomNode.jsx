@@ -24,6 +24,8 @@ const CustomNode = ({ data }) => {
     isSearched,
     isRelationSource,
     isRelationTarget,
+    isDescentHighlighted,
+    descentType,
     hasSpouse,
     isDeceased,
     dateOfDeath,
@@ -76,6 +78,17 @@ const CustomNode = ({ data }) => {
     containerClass = 'border-emerald-500 bg-gradient-to-br from-slate-900/90 to-emerald-950/20 shadow-xl ring-2 ring-emerald-500/20 scale-105';
   } else if (isRelationTarget) {
     containerClass = 'border-purple-500 bg-gradient-to-br from-slate-900/90 to-purple-950/20 shadow-xl ring-2 ring-purple-500/20 scale-105';
+  } else if (isDescentHighlighted) {
+    if (descentType === 'patrilineal') {
+      containerClass = 'border-blue-500/95 bg-gradient-to-br from-slate-900/90 to-blue-950/40 shadow-xl shadow-blue-500/10 ring-2 ring-blue-500/30 scale-105';
+      accentColor = 'from-blue-500 to-sky-400';
+    } else if (descentType === 'matrilineal') {
+      containerClass = 'border-pink-500/95 bg-gradient-to-br from-slate-900/90 to-pink-950/40 shadow-xl shadow-pink-500/10 ring-2 ring-pink-500/30 scale-105';
+      accentColor = 'from-pink-500 to-rose-400';
+    } else if (descentType === 'path') {
+      containerClass = 'border-emerald-500/95 bg-gradient-to-br from-slate-900/90 to-emerald-950/40 shadow-xl shadow-emerald-500/10 ring-2 ring-emerald-500/30 scale-105';
+      accentColor = 'from-emerald-500 to-teal-400';
+    }
   }
 
   // Avatar color scheme

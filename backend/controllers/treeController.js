@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Node = require('../models/Node');
 const Edge = require('../models/Edge');
 const JoinRequest = require('../models/JoinRequest');
+const { sendAlert } = require('../utils/notificationDelivery');
 
 // Helper to check user permission role in tree
 const getUserRoleInTree = async (tree, userId) => {
@@ -272,6 +273,43 @@ const requestToJoinTree = async (req, res) => {
       userId: req.user.id
     });
 
+    // Send automated alerts directly to tree admins
+    try {
+      const requestorEmail = req.user.email;
+      const title = `Family Tree Join Request: ${tree.treeName}`;
+      const message = `A new user with email ${requestorEmail} has requested to join your family tree "${tree.treeName}". Please log in to review and approve/reject their request.`;
+
+      // Send to tree creator
+      const creatorUser = await User.findById(tree.createdBy);
+      if (creatorUser && creatorUser.email) {
+        await sendAlert({
+          treeId: tree._id,
+          recipientName: creatorUser.profile?.name || 'Tree Creator',
+          recipientContact: creatorUser.email,
+          deliveryType: 'email',
+          title,
+          message
+        });
+      }
+
+      // Send to admins
+      for (const adminId of tree.admins) {
+        const adminUser = await User.findById(adminId);
+        if (adminUser && adminUser.email && adminUser.email !== creatorUser?.email) {
+          await sendAlert({
+            treeId: tree._id,
+            recipientName: adminUser.profile?.name || 'Tree Admin',
+            recipientContact: adminUser.email,
+            deliveryType: 'email',
+            title,
+            message
+          });
+        }
+      }
+    } catch (notifError) {
+      console.error('Error triggering join request notifications:', notifError);
+    }
+
     res.status(201).json({ message: 'Request to join tree submitted successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -352,6 +390,23 @@ const approveJoinRequest = async (req, res) => {
     request.assignedNodeId = nodeId;
     await request.save();
 
+    // Send automated email alert directly to the applicant
+    try {
+      const requestingUser = await User.findById(request.userId);
+      if (requestingUser && requestingUser.email) {
+        await sendAlert({
+          treeId: tree._id,
+          recipientName: requestingUser.profile?.name || 'Family Member',
+          recipientContact: requestingUser.email,
+          deliveryType: 'email',
+          title: `Join Request Approved: ${tree.treeName}`,
+          message: `Congratulations! Your request to join the family tree "${tree.treeName}" has been approved. You are now linked to the node "${node.name}".`
+        });
+      }
+    } catch (notifError) {
+      console.error('Error sending approval notification email:', notifError);
+    }
+
     res.status(200).json({ message: 'User approved and successfully linked to node' });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -380,6 +435,23 @@ const rejectJoinRequest = async (req, res) => {
 
     request.status = 'rejected';
     await request.save();
+
+    // Send automated email alert directly to the applicant
+    try {
+      const requestingUser = await User.findById(request.userId);
+      if (requestingUser && requestingUser.email) {
+        await sendAlert({
+          treeId: tree._id,
+          recipientName: requestingUser.profile?.name || 'Family Member',
+          recipientContact: requestingUser.email,
+          deliveryType: 'email',
+          title: `Join Request Update: ${tree.treeName}`,
+          message: `Hello. Your request to join the family tree "${tree.treeName}" has been reviewed by the administrator and was not approved.`
+        });
+      }
+    } catch (notifError) {
+      console.error('Error sending rejection notification email:', notifError);
+    }
 
     res.status(200).json({ message: 'Join request rejected' });
   } catch (error) {

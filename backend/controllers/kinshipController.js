@@ -2256,6 +2256,221 @@ const revertTreeLog = async (req, res) => {
   }
 };
 
+const checkMarriageEligibility = async (req, res) => {
+  const { treeId } = req.params;
+  const { nodeAId, nodeBId } = req.query;
+
+  if (!nodeAId || !nodeBId) {
+    return res.status(400).json({ message: 'nodeAId and nodeBId query parameters are required' });
+  }
+
+  try {
+    const nodeA = await Node.findOne({ _id: nodeAId, treeId });
+    const nodeB = await Node.findOne({ _id: nodeBId, treeId });
+
+    if (!nodeA || !nodeB) {
+      return res.status(404).json({ message: 'One or both nodes not found in this tree' });
+    }
+
+    const reasons = [];
+    let isEligible = true;
+    let details = '';
+
+    // Rule 1: Monogamy / Existing Spouse check
+    const spouseA = await Edge.findOne({
+      treeId,
+      relationshipType: 'spouse',
+      $or: [{ sourceNodeId: nodeAId }, { targetNodeId: nodeAId }]
+    });
+    const spouseB = await Edge.findOne({
+      treeId,
+      relationshipType: 'spouse',
+      $or: [{ sourceNodeId: nodeBId }, { targetNodeId: nodeBId }]
+    });
+
+    if (spouseA) {
+      reasons.push(`${nodeA.name} already has a spouse in this tree.`);
+      isEligible = false;
+    }
+    if (spouseB) {
+      reasons.push(`${nodeB.name} already has a spouse in this tree.`);
+      isEligible = false;
+    }
+
+    // Rule 2: Opposite Gender
+    if (nodeA.gender === nodeB.gender) {
+      reasons.push('Marriage must be between opposite genders under standard Dravidian kinship rules.');
+      isEligible = false;
+    }
+
+    // Rule 3: Same Gotram (parallel clan)
+    if (nodeA.gotram && nodeB.gotram && nodeA.gotram.toLowerCase() === nodeB.gotram.toLowerCase()) {
+      reasons.push(`Same Gotram (${nodeA.gotram}): Parallel clan members are considered siblings.`);
+      isEligible = false;
+    }
+
+    // Rule 4: Consanguinity / Parity calculation
+    const nodes = await Node.find({ treeId });
+    const edges = await Edge.find({ treeId });
+
+    // Construct adjacency list
+    const adj = {};
+    edges.forEach(edge => {
+      const s = edge.sourceNodeId.toString();
+      const t = edge.targetNodeId.toString();
+      if (!adj[s]) adj[s] = [];
+      if (!adj[t]) adj[t] = [];
+      adj[s].push({ node: t, type: edge.relationshipType, direction: 'forward' });
+      adj[t].push({ node: s, type: edge.relationshipType, direction: 'backward' });
+    });
+
+    // Add cross-tree link edges
+    nodes.forEach(n => {
+      if (n.crossTreeLinkId) {
+        const s = n._id.toString();
+        const t = n.crossTreeLinkId.toString();
+        const linkedNodeExists = nodes.some(x => x._id.toString() === t);
+        if (linkedNodeExists) {
+          if (!adj[s]) adj[s] = [];
+          if (!adj[t]) adj[t] = [];
+          if (!adj[s].some(neighbor => neighbor.node === t)) {
+            adj[s].push({ node: t, type: 'cross_link', direction: 'bidirectional' });
+          }
+          if (!adj[t].some(neighbor => neighbor.node === s)) {
+            adj[t].push({ node: s, type: 'cross_link', direction: 'bidirectional' });
+          }
+        }
+      }
+    });
+
+    // BFS to find shortest path
+    const queue = [[nodeAId.toString()]];
+    const visited = new Set([nodeAId.toString()]);
+    let path = null;
+
+    while (queue.length > 0) {
+      const currPath = queue.shift();
+      const lastNode = currPath[currPath.length - 1];
+
+      if (lastNode === nodeBId.toString()) {
+        path = currPath;
+        break;
+      }
+
+      const neighbors = adj[lastNode] || [];
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor.node)) {
+          visited.add(neighbor.node);
+          queue.push([...currPath, neighbor.node]);
+        }
+      }
+    }
+
+    if (!path) {
+      if (isEligible) {
+        details = 'Eligible (Unrelated): No traceable relationship path exists between these members, making them eligible to marry.';
+      }
+    } else {
+      const pathNodes = await Promise.all(path.map(id => Node.findById(id)));
+      
+      const getEdgeType = (nodeId1, nodeId2, edgesList) => {
+        const id1 = nodeId1.toString();
+        const id2 = nodeId2.toString();
+        const edge = edgesList.find(e => 
+          (e.sourceNodeId.toString() === id1 && e.targetNodeId.toString() === id2) ||
+          (e.sourceNodeId.toString() === id2 && e.targetNodeId.toString() === id1)
+        );
+        return edge ? { type: edge.relationshipType, source: edge.sourceNodeId.toString(), target: edge.targetNodeId.toString() } : null;
+      };
+
+      let relativeGen = 0;
+      let relativeParity = 0;
+
+      for (let i = 0; i < pathNodes.length - 1; i++) {
+        const curr = pathNodes[i];
+        const next = pathNodes[i + 1];
+
+        if ((curr.crossTreeLinkId && curr.crossTreeLinkId.toString() === next._id.toString()) ||
+            (next.crossTreeLinkId && next.crossTreeLinkId.toString() === curr._id.toString())) {
+          continue;
+        }
+
+        const edgeInfo = getEdgeType(curr._id, next._id, edges);
+        if (edgeInfo) {
+          if (edgeInfo.type === 'spouse') {
+            relativeParity = 1 - relativeParity;
+          } else if (edgeInfo.type === 'parent_child') {
+            if (edgeInfo.source === curr._id.toString()) {
+              relativeGen = relativeGen - 1;
+              relativeParity = (relativeParity + (1 - curr.gender)) % 2;
+            } else {
+              relativeGen = relativeGen + 1;
+              relativeParity = (relativeParity + (1 - next.gender)) % 2;
+            }
+          }
+        }
+      }
+
+      const delta = relativeGen;
+      const sameParity = (relativeParity === 0);
+
+      // Direct checks
+      const directParent = edges.some(e => e.relationshipType === 'parent_child' && 
+        ((e.sourceNodeId.toString() === nodeAId.toString() && e.targetNodeId.toString() === nodeBId.toString()) ||
+         (e.sourceNodeId.toString() === nodeBId.toString() && e.targetNodeId.toString() === nodeAId.toString())));
+      
+      if (directParent) {
+        reasons.push('Direct parent-child relationships are strictly ineligible.');
+        isEligible = false;
+      }
+
+      if (delta === 0 && path.length === 3) {
+        const parentEdgeA = edges.filter(e => e.relationshipType === 'parent_child' && e.targetNodeId.toString() === nodeAId.toString());
+        const parentEdgeB = edges.filter(e => e.relationshipType === 'parent_child' && e.targetNodeId.toString() === nodeBId.toString());
+        const sharedParents = parentEdgeA.filter(ea => parentEdgeB.some(eb => eb.sourceNodeId.toString() === ea.sourceNodeId.toString()));
+        if (sharedParents.length > 0) {
+          reasons.push('Direct siblings cannot marry.');
+          isEligible = false;
+        }
+      }
+
+      if (delta === 0) {
+        if (sameParity) {
+          reasons.push('Parallel cousins are considered siblings (brother/sister tier) and are ineligible to marry.');
+          isEligible = false;
+        } else {
+          if (isEligible) {
+            details = 'Eligible (Cross-Cousins): They are cross-cousins (opposite parity) in the same generation, which is the standard marriage eligibility under Dravidian rules.';
+          }
+        }
+      } else if (Math.abs(delta) === 1) {
+        const isMavayyaNiece = (nodeA.gender === 1 && nodeB.gender === 0 && !sameParity && delta === 1) ||
+                               (nodeB.gender === 1 && nodeA.gender === 0 && !sameParity && delta === -1);
+        
+        if (isMavayyaNiece) {
+          if (isEligible) {
+            details = "Eligible (Maternal Uncle / Niece): They are cross-relatives with 1 generation difference (uncle and niece), which is traditionally eligible (Menarikam) in many Dravidian communities.";
+          }
+        } else {
+          reasons.push(`Generational gap of 1 is only eligible for maternal uncle and niece marriages. Current relationship tier is not eligible.`);
+          isEligible = false;
+        }
+      } else {
+        reasons.push(`Generational gap is too wide (difference: ${Math.abs(delta)} generation(s)).`);
+        isEligible = false;
+      }
+    }
+
+    res.status(200).json({
+      isEligible,
+      reasons: isEligible ? [] : reasons,
+      details: isEligible ? details : 'Ineligible based on Dravidian kinship parity and descent rules.'
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getTreeGraph,
   createNode,
@@ -2269,6 +2484,7 @@ module.exports = {
   getNodeTree,
   getTreeLogs,
   revertTreeLog,
-  deleteEdge
+  deleteEdge,
+  checkMarriageEligibility
 };
 

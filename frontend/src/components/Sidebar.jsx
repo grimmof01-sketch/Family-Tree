@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Filter, X, User, Heart, Compass, Smartphone, Calendar, Link as LinkIcon, Compass as CompassIcon, RefreshCw, Layers, GitBranch, Plus, Shield, LogOut, Trash2, Gift, Copy, Check } from 'lucide-react';
+import { api } from '../utils/api';
+import KinshipWalkthrough from './KinshipWalkthrough';
 
 const Sidebar = ({
   nodes,
@@ -41,16 +43,39 @@ const Sidebar = ({
   onMarkAllNotificationsRead,
   onNotificationClick,
   hasNotificationAccess = false,
+  onSelectNodesForTrace,
 }) => {
   const [showFilters, setShowFilters] = useState(false);
-  const [activeTab, setActiveTab] = useState('members'); // 'members' | 'history'
+  const [activeTab, setActiveTab] = useState('members'); // 'members' | 'history' | 'academy' | 'notifications'
   const [copiedId, setCopiedId] = useState(false);
+
+  // States for notification delivery logs
+  const [deliveryLogs, setDeliveryLogs] = useState([]);
+  const [loadingDeliveryLogs, setLoadingDeliveryLogs] = useState(false);
+  const [eventsSubTab, setEventsSubTab] = useState('events'); // 'events' | 'logs'
 
   useEffect(() => {
     if (activeTab === 'history' && fetchLogs) {
       fetchLogs();
     }
   }, [activeTab, activeTreeId]);
+
+  useEffect(() => {
+    if (activeTab === 'notifications' && eventsSubTab === 'logs' && activeTreeId) {
+      const fetchLogsData = async () => {
+        setLoadingDeliveryLogs(true);
+        try {
+          const data = await api.kinship.getDeliveryLogs(activeTreeId);
+          setDeliveryLogs(data || []);
+        } catch (err) {
+          console.error('Failed to load delivery logs:', err);
+        } finally {
+          setLoadingDeliveryLogs(false);
+        }
+      };
+      fetchLogsData();
+    }
+  }, [activeTab, eventsSubTab, activeTreeId]);
 
   // Get unique list of gotrams and blood groups for select dropdowns
   const uniqueGotrams = [...new Set(nodes.map(n => n.gotram).filter(Boolean))];
@@ -174,7 +199,7 @@ const Sidebar = ({
       <div className="flex border-b border-slate-700/20 flex-shrink-0">
         <button
           onClick={() => setActiveTab('members')}
-          className={`flex-1 py-3 text-[11px] font-bold border-b-2 transition-all duration-300 cursor-pointer ${activeTab === 'members'
+          className={`flex-1 py-3 text-[10px] uppercase tracking-wider font-extrabold border-b-2 transition-all duration-300 cursor-pointer ${activeTab === 'members'
               ? 'border-emerald-500 text-slate-200 bg-emerald-500/5'
               : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/20'
             }`}
@@ -182,8 +207,17 @@ const Sidebar = ({
           Members
         </button>
         <button
+          onClick={() => setActiveTab('academy')}
+          className={`flex-1 py-3 text-[10px] uppercase tracking-wider font-extrabold border-b-2 transition-all duration-300 cursor-pointer ${activeTab === 'academy'
+              ? 'border-emerald-500 text-slate-200 bg-emerald-500/5'
+              : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/20'
+            }`}
+        >
+          Academy 🎓
+        </button>
+        <button
           onClick={() => setActiveTab('history')}
-          className={`flex-1 py-3 text-[11px] font-bold border-b-2 transition-all duration-300 cursor-pointer ${activeTab === 'history'
+          className={`flex-1 py-3 text-[10px] uppercase tracking-wider font-extrabold border-b-2 transition-all duration-300 cursor-pointer ${activeTab === 'history'
               ? 'border-emerald-500 text-slate-200 bg-emerald-500/5'
               : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/20'
             }`}
@@ -192,14 +226,14 @@ const Sidebar = ({
         </button>
         <button
           onClick={() => setActiveTab('notifications')}
-          className={`flex-1 py-3 text-xs font-bold border-b-2 transition-colors cursor-pointer relative ${activeTab === 'notifications'
+          className={`flex-1 py-3 text-[10px] uppercase tracking-wider font-extrabold border-b-2 transition-colors cursor-pointer relative ${activeTab === 'notifications'
               ? 'border-emerald-500 text-slate-200 bg-emerald-950/10'
               : 'border-transparent text-slate-500 hover:text-slate-350 hover:bg-slate-900/20'
             }`}
         >
-          <span>Notifications</span>
+          <span>Events</span>
           {unreadCount > 0 && (
-            <span className="absolute top-2.5 right-1.5 bg-emerald-500 text-slate-950 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full leading-none">
+            <span className="absolute top-2.5 right-0.5 bg-emerald-500 text-slate-950 text-[8px] font-extrabold px-1 rounded-full leading-none">
               {unreadCount}
             </span>
           )}
@@ -468,87 +502,194 @@ const Sidebar = ({
         </div>
       )}
 
+      {activeTab === 'academy' && (
+        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+          <KinshipWalkthrough
+            nodes={nodes}
+            onSelectNodesForTrace={onSelectNodesForTrace}
+            onClose={() => setActiveTab('members')}
+          />
+        </div>
+      )}
+
       {activeTab === 'notifications' && (
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="p-4 border-b border-slate-900 flex items-center justify-between flex-shrink-0">
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Upcoming & Recent Events</span>
-            {unreadCount > 0 && onMarkAllNotificationsRead && (
-              <button
-                onClick={onMarkAllNotificationsRead}
-                className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold uppercase tracking-wider cursor-pointer"
-              >
-                Mark all as read
-              </button>
-            )}
+          {/* Sub-tabs header */}
+          <div className="flex bg-slate-950/40 p-1 border-b border-slate-900/80 flex-shrink-0">
+            <button
+              onClick={() => setEventsSubTab('events')}
+              className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                eventsSubTab === 'events'
+                  ? 'bg-slate-800 text-slate-100 border border-slate-700/30'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              📅 Events
+            </button>
+            <button
+              onClick={() => setEventsSubTab('logs')}
+              className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                eventsSubTab === 'logs'
+                  ? 'bg-slate-800 text-slate-100 border border-slate-700/30'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              💬 SMS / Email Logs
+            </button>
           </div>
 
-          <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
-            {!hasNotificationAccess ? (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-4 rounded-2xl text-center">
-                Access Denied: You must be an Admin or have a linked member profile to view notifications in this tree.
-              </div>
-            ) : !notifications || notifications.length === 0 ? (
-              <div className="text-center py-8 text-xs text-slate-500">
-                No events in the next 30 days.
-              </div>
-            ) : (
-              notifications.map((notif) => {
-                const isAnniversary = notif.type === 'anniversary';
-                const isBirthday = notif.type === 'birthday';
-
-                const eventDateFormatted = new Date(notif.eventDate).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric'
-                });
-
-                return (
-                  <div
-                    key={notif._id}
-                    onClick={() => onNotificationClick && onNotificationClick(notif)}
-                    className={`p-3 rounded-xl border text-xs flex items-start space-x-3 transition-all cursor-pointer relative ${notif.isRead
-                        ? 'bg-slate-950/20 border-slate-900/60 opacity-70 hover:opacity-100 hover:border-slate-800'
-                        : 'bg-slate-900 border-slate-800 hover:border-emerald-500/30 shadow-md shadow-slate-950/20'
-                      }`}
+          {eventsSubTab === 'events' && (
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="p-4 border-b border-slate-900 flex items-center justify-between flex-shrink-0">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Upcoming & Recent Events</span>
+                {unreadCount > 0 && onMarkAllNotificationsRead && (
+                  <button
+                    onClick={onMarkAllNotificationsRead}
+                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold uppercase tracking-wider cursor-pointer"
                   >
-                    {!notif.isRead && (
-                      <span className="absolute top-3.5 right-3.5 w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    )}
+                    Mark all as read
+                  </button>
+                )}
+              </div>
 
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${isBirthday ? 'bg-emerald-500/10 text-emerald-400' :
-                        isAnniversary ? 'bg-pink-500/10 text-pink-400' :
-                          'bg-rose-500/10 text-rose-400'
-                      }`}>
-                      {isBirthday ? <Gift size={16} /> :
-                        isAnniversary ? <Heart size={16} /> :
-                          <Shield size={16} />}
-                    </div>
+              <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
+                {!hasNotificationAccess ? (
+                  <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-4 rounded-2xl text-center">
+                    Access Denied: You must be an Admin or have a linked member profile to view notifications in this tree.
+                  </div>
+                ) : !notifications || notifications.length === 0 ? (
+                  <div className="text-center py-8 text-xs text-slate-500">
+                    No events in the next 30 days.
+                  </div>
+                ) : (
+                  notifications.map((notif) => {
+                    const isAnniversary = notif.type === 'anniversary';
+                    const isBirthday = notif.type === 'birthday';
 
-                    <div className="flex-1 min-w-0 pr-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-200 truncate">{notif.title}</span>
+                    const eventDateFormatted = new Date(notif.eventDate).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric'
+                    });
+
+                    return (
+                      <div
+                        key={notif._id}
+                        onClick={() => onNotificationClick && onNotificationClick(notif)}
+                        className={`p-3 rounded-xl border text-xs flex items-start space-x-3 transition-all cursor-pointer relative ${notif.isRead
+                            ? 'bg-slate-950/20 border-slate-900/60 opacity-70 hover:opacity-100 hover:border-slate-800'
+                            : 'bg-slate-900 border-slate-800 hover:border-emerald-500/30 shadow-md shadow-slate-950/20'
+                          }`}
+                      >
+                        {!notif.isRead && (
+                          <span className="absolute top-3.5 right-3.5 w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        )}
+
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${isBirthday ? 'bg-emerald-500/10 text-emerald-400' :
+                            isAnniversary ? 'bg-pink-500/10 text-pink-400' :
+                              'bg-rose-500/10 text-rose-400'
+                          }`}>
+                          {isBirthday ? <Gift size={16} /> :
+                            isAnniversary ? <Heart size={16} /> :
+                              <Shield size={16} />}
+                        </div>
+
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-200 truncate">{notif.title}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{notif.message}</p>
+
+                          <div className="flex items-center justify-between mt-2.5">
+                            <span className="text-[9px] font-bold text-slate-500 uppercase">{eventDateFormatted}</span>
+                            {!notif.isRead && onMarkNotificationRead && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onMarkNotificationRead(notif._id);
+                                }}
+                                className="text-[9px] font-extrabold text-emerald-400 hover:text-emerald-300 uppercase tracking-widest bg-slate-950/60 px-2 py-0.5 rounded-md border border-slate-800 hover:border-emerald-500/20"
+                              >
+                                Mark Read
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{notif.message}</p>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
 
-                      <div className="flex items-center justify-between mt-2.5">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase">{eventDateFormatted}</span>
-                        {!notif.isRead && onMarkNotificationRead && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onMarkNotificationRead(notif._id);
-                            }}
-                            className="text-[9px] font-extrabold text-emerald-400 hover:text-emerald-300 uppercase tracking-widest bg-slate-950/60 px-2 py-0.5 rounded-md border border-slate-800 hover:border-emerald-500/20"
-                          >
-                            Mark Read
-                          </button>
+          {eventsSubTab === 'logs' && (
+            <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
+              {loadingDeliveryLogs ? (
+                <div className="text-center py-12 space-y-3">
+                  <RefreshCw size={20} className="animate-spin text-slate-600 mx-auto" />
+                  <p className="text-xs text-slate-500">Loading delivery logs...</p>
+                </div>
+              ) : !deliveryLogs || deliveryLogs.length === 0 ? (
+                <div className="text-center py-12 text-xs text-slate-500">
+                  No automated alerts have been sent or simulated yet.
+                </div>
+              ) : (
+                deliveryLogs.map((log) => {
+                  const isFailed = log.status === 'failed';
+                  const isSent = log.status === 'sent';
+
+                  return (
+                    <div
+                      key={log._id}
+                      className="p-3 bg-slate-900/60 border border-slate-800/80 rounded-xl text-xs space-y-2 hover:border-slate-700 transition-all duration-250"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex gap-1.5 items-center">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide ${
+                            log.channel === 'Twilio'
+                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/25'
+                              : log.channel === 'SendGrid'
+                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/25'
+                              : 'bg-slate-800 text-slate-400 border border-slate-700'
+                          }`}>
+                            {log.channel}
+                          </span>
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide ${
+                            isFailed
+                              ? 'bg-rose-500/15 text-rose-400 border border-rose-500/25'
+                              : isSent
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                              : 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/25'
+                          }`}>
+                            {log.status}
+                          </span>
+                        </div>
+                        <span className="text-[9px] text-slate-500">
+                          {new Date(log.sentAt).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1">
+                        <p className="font-semibold text-slate-200">{log.recipientName} ({log.recipientContact})</p>
+                        <p className="text-slate-300 font-medium text-[11px]">{log.title}</p>
+                        <p className="text-slate-400 text-[10px] leading-relaxed italic">"{log.message}"</p>
+                        {isFailed && log.error && (
+                          <p className="text-rose-400 text-[9px] bg-rose-950/20 p-1.5 rounded-lg border border-rose-900/30">
+                            Error: {log.error}
+                          </p>
                         )}
                       </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

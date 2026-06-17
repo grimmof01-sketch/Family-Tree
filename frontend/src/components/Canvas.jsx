@@ -228,7 +228,8 @@ const CanvasComponent = ({
   onNodeClick,
   layoutDirection = 'TB', // 'TB' or 'LR'
   onViewImage,
-  onViewCrossTree
+  onViewCrossTree,
+  descentHighlight = { type: null, nodeIds: [], edgeIds: [] }
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -270,13 +271,28 @@ const CanvasComponent = ({
         labelBgStyle = { fill: '#061c15', fillOpacity: 0.9, stroke: '#10b981/20', strokeWidth: 1 };
       }
 
+      const isEdgeHighlighted = descentHighlight && descentHighlight.edgeIds && descentHighlight.edgeIds.includes(edge._id);
+      let edgeStyle = isSpouse 
+        ? { stroke: '#fb7185', strokeWidth: 2, strokeDasharray: '8 5', opacity: 0.7 } 
+        : { stroke: '#34d399', strokeWidth: 1.5, opacity: 0.6 };
+
+      if (isEdgeHighlighted) {
+        if (descentHighlight.type === 'patrilineal') {
+          edgeStyle = { stroke: '#3b82f6', strokeWidth: 3, opacity: 0.9 };
+        } else if (descentHighlight.type === 'matrilineal') {
+          edgeStyle = { stroke: '#ec4899', strokeWidth: 3, opacity: 0.9 };
+        } else if (descentHighlight.type === 'path') {
+          edgeStyle = { stroke: '#10b981', strokeWidth: 3, opacity: 0.9 };
+        }
+      }
+
       return {
         id: edge._id,
         source: edge.sourceNodeId,
         target: edge.targetNodeId,
         relationshipType: edge.relationshipType,
         type: isSpouse ? 'straight' : 'smoothstep',
-        animated: false,
+        animated: isEdgeHighlighted,
         className: isSpouse ? 'spouse' : 'parent_child',
         data: { relationshipType: edge.relationshipType },
         label: labelText,
@@ -284,15 +300,15 @@ const CanvasComponent = ({
         labelBgStyle,
         labelBgPadding: [5, 3],
         labelBgBorderRadius: 4,
-        style: isSpouse 
-          ? { stroke: '#fb7185', strokeWidth: 2, strokeDasharray: '8 5', opacity: 0.7 } 
-          : { stroke: '#34d399', strokeWidth: 1.5, opacity: 0.6 },
+        style: edgeStyle,
         // Add arrow markers for parent_child relationships
         markerEnd: !isSpouse ? {
           type: MarkerType.ArrowClosed,
           width: 14,
           height: 14,
-          color: '#34d399',
+          color: isEdgeHighlighted
+            ? (descentHighlight.type === 'patrilineal' ? '#3b82f6' : (descentHighlight.type === 'matrilineal' ? '#ec4899' : '#10b981'))
+            : '#34d399',
         } : undefined,
       };
     });
@@ -334,6 +350,8 @@ const CanvasComponent = ({
 
       const isSource = relationSource ? relationSource._id === node._id : false;
       const isTarget = relationTarget ? relationTarget._id === node._id : false;
+      const isDescentHighlighted = descentHighlight && descentHighlight.nodeIds && descentHighlight.nodeIds.includes(node._id);
+      const descentType = isDescentHighlighted ? descentHighlight.type : null;
 
       return {
         id: node._id,
@@ -358,6 +376,8 @@ const CanvasComponent = ({
           isSearched,
           isRelationSource: isSource,
           isRelationTarget: isTarget,
+          isDescentHighlighted,
+          descentType,
           onAddChild,
           onAddSpouse,
           onEditProfile,
@@ -368,7 +388,7 @@ const CanvasComponent = ({
           crossTreeLinkId: showCrossTreeLink ? node.crossTreeLinkId : null,
           onViewCrossTree,
         },
-        position: { x: 0, y: 0 }, // positions calculated dynamically by Dagre below
+        position: { x: 0, y: 0 },
       };
     });
 
@@ -386,6 +406,7 @@ const CanvasComponent = ({
     relationSource,
     relationTarget,
     layoutDirection,
+    descentHighlight,
     setNodes,
     setEdges
   ]);

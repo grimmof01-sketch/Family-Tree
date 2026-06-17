@@ -14,12 +14,14 @@ const {
   getNodeTree,
   getTreeLogs,
   revertTreeLog,
-  deleteEdge
+  deleteEdge,
+  checkMarriageEligibility
 } = require('../controllers/kinshipController');
 const {
   getNotifications,
   markAsRead,
-  markAllAsRead
+  markAllAsRead,
+  getDeliveryLogs
 } = require('../controllers/notificationController');
 const { protect } = require('../middleware/auth');
 
@@ -48,6 +50,7 @@ router.delete('/:treeId/edges', deleteEdge);
 router.put('/:treeId/nodes/:nodeId', updateNode);
 router.delete('/:treeId/nodes/:nodeId', deleteNode);
 router.get('/:treeId/relation', classifyKinshipRelation);
+router.get('/:treeId/marriage-eligibility', checkMarriageEligibility);
 router.get('/:treeId/logs', getTreeLogs);
 router.post('/:treeId/logs/:logId/revert', revertTreeLog);
 
@@ -55,6 +58,7 @@ router.post('/:treeId/logs/:logId/revert', revertTreeLog);
 router.get('/:treeId/notifications', getNotifications);
 router.put('/:treeId/notifications/read-all', markAllAsRead);
 router.put('/:treeId/notifications/:notificationId/read', markAsRead);
+router.get('/:treeId/delivery-logs', getDeliveryLogs);
 
 // Profile picture upload endpoint
 router.post('/:treeId/upload', upload.single('image'), uploadProfilePicture);

@@ -69,6 +69,16 @@ const App = () => {
   const [relationResult, setRelationResult] = useState(null);
   const [loadingRelation, setLoadingRelation] = useState(false);
 
+  // Marriage Eligibility states
+  const [marriageEligibility, setMarriageEligibility] = useState(null);
+  const [loadingEligibility, setLoadingEligibility] = useState(false);
+
+  // Lineage Highlight states
+  const [descentHighlight, setDescentHighlight] = useState({ type: null, nodeIds: [], edgeIds: [] });
+
+  // Offline Sync states
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
   // Modals
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState(null); // 'add_child' | 'add_spouse' | 'edit_profile' | 'link_user'
@@ -201,8 +211,26 @@ const App = () => {
       setSelectedNode(null);
       setRelationResult(null);
       setNotifications([]);
+      setDescentHighlight({ type: null, nodeIds: [], edgeIds: [] });
     }
   }, [activeTreeId]);
+
+  // Network offline status listener
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOffline(false);
+      syncOfflineActions();
+    };
+    const handleOffline = () => {
+      setIsOffline(true);
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const fetchTrees = async () => {
     try {
@@ -228,6 +256,13 @@ const App = () => {
       setRawEdges(data.edges);
       setUserRole(data.userRole);
 
+      // Cache tree details locally
+      localStorage.setItem(`graph_cache_${activeTreeId}`, JSON.stringify({
+        nodes: data.nodes,
+        edges: data.edges,
+        userRole: data.userRole
+      }));
+
       // Fetch pending requests count if user is Admin of the active tree
       if (data.userRole === 'Admin') {
         const reqs = await api.trees.listJoinRequests(activeTreeId);
@@ -245,7 +280,17 @@ const App = () => {
       }
     } catch (err) {
       console.error(err);
-      setError('Failed to load tree graph data');
+      // Attempt load from cache
+      const cached = localStorage.getItem(`graph_cache_${activeTreeId}`);
+      if (cached) {
+        const { nodes, edges, userRole } = JSON.parse(cached);
+        setRawNodes(nodes);
+        setRawEdges(edges);
+        setUserRole(userRole);
+        setError('Working Offline: Loaded family tree from local cache.');
+      } else {
+        setError('Failed to load tree graph data and no local cache exists.');
+      }
     } finally {
       setLoading(false);
     }
@@ -346,6 +391,7 @@ const App = () => {
       setRelationSource(null);
       setRelationTarget(null);
       setRelationResult(null);
+      setDescentHighlight({ type: null, nodeIds: [], edgeIds: [] });
       
       alert('Family tree deleted successfully.');
     } catch (err) {
@@ -367,13 +413,7 @@ const App = () => {
     if (!window.confirm(`Are you sure you want to remove this ${relationshipType.replace('_', ' ')} relationship?`)) {
       return;
     }
-    try {
-      await api.kinship.deleteEdge(activeTreeId, sourceNodeId, targetNodeId, relationshipType);
-      alert('Relationship removed successfully!');
-      fetchGraph();
-    } catch (err) {
-      alert(err.message || 'Failed to remove relationship');
-    }
+    await executeKinshipAction('deleteEdge', { sourceNodeId, targetNodeId, relationshipType });
   };
 
   // Node submissions handler
@@ -382,39 +422,203 @@ const App = () => {
     
     if (modalMode === 'add_child') {
       if (data.modeType === 'existing_child') {
-        await api.kinship.createParentChild(activeTreeId, data.parentId, data.childId);
+        await executeKinshipAction('createParentChild', { parentId: data.parentId, childId: data.childId });
       } else {
-        await api.kinship.createNode(activeTreeId, data);
+        await executeKinshipAction('createNode', data);
       }
     } else if (modalMode === 'add_parent') {
       if (data.modeType === 'existing_parent') {
-        await api.kinship.createParentChild(activeTreeId, data.parentId, data.childId);
+        await executeKinshipAction('createParentChild', { parentId: data.parentId, childId: data.childId });
       } else {
-        await api.kinship.createNode(activeTreeId, data);
+        await executeKinshipAction('createNode', data);
       }
     } else if (modalMode === 'add_spouse') {
       if (data.modeType === 'existing') {
-        // Link pre-existing nodes in marriage
-        await api.kinship.createMarriage(activeTreeId, data.targetNodeId, data.spouseNodeId);
+        await executeKinshipAction('createMarriage', { nodeAId: data.targetNodeId, nodeBId: data.spouseNodeId });
       } else if (data.modeType === 'cross_tree') {
-        // Link cross-tree node
-        await api.kinship.createSpouse(activeTreeId, {
-          existingNodeId: data.targetNodeId,
-          crossTreeNodeId: data.crossTreeNodeId
-        });
+        if (!navigator.onLine) {
+          alert('Linking cross-tree members requires an active internet connection.');
+          return;
+        }
+        try {
+          await api.kinship.createSpouse(activeTreeId, {
+            existingNodeId: data.targetNodeId,
+            crossTreeNodeId: data.crossTreeNodeId
+          });
+          fetchGraph();
+        } catch (err) {
+          alert(err.message || 'Failed to link cross-tree spouse');
+        }
       } else {
-        // Create new spouse node
-        await api.kinship.createSpouse(activeTreeId, data);
+        await executeKinshipAction('createSpouse', data);
       }
     } else if (modalMode === 'edit_profile') {
-      await api.kinship.updateNode(activeTreeId, modalTargetId, data);
-      // If the currently selected node was edited, update selectedNode profile view
+      await executeKinshipAction('updateNode', { nodeId: modalTargetId, data });
       if (selectedNode && selectedNode._id === modalTargetId) {
         setSelectedNode(prev => ({ ...prev, ...data }));
       }
     }
-    
-    // Refresh graph
+  };
+
+  const executeKinshipAction = async (type, payload) => {
+    if (!activeTreeId) return;
+
+    if (!navigator.onLine) {
+      const queueItem = {
+        id: Date.now().toString(),
+        treeId: activeTreeId,
+        type,
+        payload
+      };
+
+      const queue = JSON.parse(localStorage.getItem('offline_actions_queue') || '[]');
+      queue.push(queueItem);
+      localStorage.setItem('offline_actions_queue', JSON.stringify(queue));
+
+      applyOptimisticUpdate(queueItem);
+      alert('You are currently offline. Your action has been saved locally and will automatically synchronize when you reconnect.');
+      return;
+    }
+
+    try {
+      if (type === 'createParentChild') {
+        await api.kinship.createParentChild(activeTreeId, payload.parentId, payload.childId);
+      } else if (type === 'createNode') {
+        await api.kinship.createNode(activeTreeId, payload);
+      } else if (type === 'createMarriage') {
+        await api.kinship.createMarriage(activeTreeId, payload.nodeAId, payload.nodeBId);
+      } else if (type === 'createSpouse') {
+        await api.kinship.createSpouse(activeTreeId, payload);
+      } else if (type === 'updateNode') {
+        await api.kinship.updateNode(activeTreeId, payload.nodeId, payload.data);
+      } else if (type === 'deleteNode') {
+        await api.kinship.deleteNode(activeTreeId, payload.nodeId);
+      } else if (type === 'deleteEdge') {
+        await api.kinship.deleteEdge(activeTreeId, payload.sourceNodeId, payload.targetNodeId, payload.relationshipType);
+      }
+      fetchGraph();
+    } catch (err) {
+      alert(err.message || 'Action execution failed');
+    }
+  };
+
+  const applyOptimisticUpdate = (action) => {
+    const { type, payload } = action;
+
+    if (type === 'createNode') {
+      const tempId = `temp_${Date.now()}`;
+      const mockNode = {
+        _id: tempId,
+        name: payload.name,
+        gender: payload.gender,
+        dob: payload.dob,
+        bloodGroup: payload.bloodGroup,
+        gotram: payload.gotram,
+        generationLevel: selectedNode ? selectedNode.generationLevel - 1 : 0,
+        parity: selectedNode ? (selectedNode.parity + (1 - selectedNode.gender)) % 2 : 0,
+        isDeceased: payload.isDeceased,
+        dateOfDeath: payload.dateOfDeath,
+        socialLinks: payload.socialLinks || []
+      };
+
+      setRawNodes(prev => [...prev, mockNode]);
+
+      if (payload.parentId) {
+        setRawEdges(prev => [...prev, {
+          _id: `temp_edge_${Date.now()}`,
+          sourceNodeId: payload.parentId,
+          targetNodeId: tempId,
+          relationshipType: 'parent_child'
+        }]);
+      }
+    } else if (type === 'createSpouse') {
+      const tempId = `temp_${Date.now()}`;
+      const mockNode = {
+        _id: tempId,
+        name: payload.name || 'Spouse',
+        gender: selectedNode ? 1 - selectedNode.gender : 1,
+        dob: payload.dob,
+        bloodGroup: payload.bloodGroup,
+        gotram: payload.gotram,
+        generationLevel: selectedNode ? selectedNode.generationLevel : 0,
+        parity: selectedNode ? 1 - selectedNode.parity : 1,
+        isDeceased: payload.isDeceased,
+        dateOfDeath: payload.dateOfDeath,
+        socialLinks: payload.socialLinks || []
+      };
+
+      setRawNodes(prev => [...prev, mockNode]);
+      setRawEdges(prev => [...prev, {
+        _id: `temp_edge_${Date.now()}`,
+        sourceNodeId: payload.existingNodeId,
+        targetNodeId: tempId,
+        relationshipType: 'spouse'
+      }]);
+    } else if (type === 'updateNode') {
+      setRawNodes(prev => prev.map(n => n._id === payload.nodeId ? { ...n, ...payload.data } : n));
+    } else if (type === 'deleteNode') {
+      setRawNodes(prev => prev.filter(n => n._id !== payload.nodeId));
+      setRawEdges(prev => prev.filter(e => e.sourceNodeId !== payload.nodeId && e.targetNodeId !== payload.nodeId));
+    } else if (type === 'createMarriage') {
+      setRawEdges(prev => [...prev, {
+        _id: `temp_edge_${Date.now()}`,
+        sourceNodeId: payload.nodeAId,
+        targetNodeId: payload.nodeBId,
+        relationshipType: 'spouse'
+      }]);
+    } else if (type === 'createParentChild') {
+      setRawEdges(prev => [...prev, {
+        _id: `temp_edge_${Date.now()}`,
+        sourceNodeId: payload.parentId,
+        targetNodeId: payload.childId,
+        relationshipType: 'parent_child'
+      }]);
+    } else if (type === 'deleteEdge') {
+      setRawEdges(prev => prev.filter(e => !(
+        e.relationshipType === payload.relationshipType &&
+        ((e.sourceNodeId === payload.sourceNodeId && e.targetNodeId === payload.targetNodeId) ||
+         (e.sourceNodeId === payload.targetNodeId && e.targetNodeId === payload.sourceNodeId))
+      )));
+    }
+  };
+
+  const syncOfflineActions = async () => {
+    const queue = JSON.parse(localStorage.getItem('offline_actions_queue') || '[]');
+    if (queue.length === 0) return;
+
+    console.log(`Syncing ${queue.length} offline actions...`);
+    let updatedQueue = [...queue];
+
+    for (const action of queue) {
+      try {
+        if (action.type === 'createParentChild') {
+          await api.kinship.createParentChild(action.treeId, action.payload.parentId, action.payload.childId);
+        } else if (action.type === 'createNode') {
+          await api.kinship.createNode(action.treeId, action.payload);
+        } else if (action.type === 'createMarriage') {
+          await api.kinship.createMarriage(action.treeId, action.payload.nodeAId, action.payload.nodeBId);
+        } else if (action.type === 'createSpouse') {
+          await api.kinship.createSpouse(action.treeId, action.payload);
+        } else if (action.type === 'updateNode') {
+          await api.kinship.updateNode(action.treeId, action.payload.nodeId, action.payload.data);
+        } else if (action.type === 'deleteNode') {
+          await api.kinship.deleteNode(action.treeId, action.payload.nodeId);
+        } else if (action.type === 'deleteEdge') {
+          await api.kinship.deleteEdge(action.treeId, action.payload.sourceNodeId, action.payload.targetNodeId, action.payload.relationshipType);
+        }
+        
+        updatedQueue = updatedQueue.filter(item => item.id !== action.id);
+        localStorage.setItem('offline_actions_queue', JSON.stringify(updatedQueue));
+      } catch (err) {
+        console.error('Failed to sync offline action:', action, err);
+        if (!navigator.onLine) {
+          break;
+        } else {
+          updatedQueue = updatedQueue.filter(item => item.id !== action.id);
+          localStorage.setItem('offline_actions_queue', JSON.stringify(updatedQueue));
+        }
+      }
+    }
     fetchGraph();
   };
 
@@ -450,17 +654,12 @@ const App = () => {
     const confirmDelete = window.confirm('Are you sure you want to delete this family member? All their relationships will be removed.');
     if (!confirmDelete) return;
 
-    try {
-      await api.kinship.deleteNode(activeTreeId, id);
-      if (selectedNode && selectedNode._id === id) {
-        setSelectedNode(null);
-      }
-      if (relationSource && relationSource._id === id) setRelationSource(null);
-      if (relationTarget && relationTarget._id === id) setRelationTarget(null);
-      fetchGraph();
-    } catch (err) {
-      alert(err.message || 'Failed to delete node');
+    await executeKinshipAction('deleteNode', { nodeId: id });
+    if (selectedNode && selectedNode._id === id) {
+      setSelectedNode(null);
     }
+    if (relationSource && relationSource._id === id) setRelationSource(null);
+    if (relationTarget && relationTarget._id === id) setRelationTarget(null);
   };
 
   const handleCheckRelationClick = (id, roleType) => {
@@ -468,9 +667,11 @@ const App = () => {
     if (roleType === 'source') {
       setRelationSource(node);
       setRelationResult(null); // Clear old results
+      setMarriageEligibility(null);
     } else {
       setRelationTarget(node);
       setRelationResult(null); // Clear old results
+      setMarriageEligibility(null);
     }
     setSelectedNode(null); // Auto-close profile panel when set as source/target
   };
@@ -482,12 +683,14 @@ const App = () => {
       setRelationTarget(null);
     }
     setRelationResult(null);
+    setMarriageEligibility(null);
   };
 
   // Calculate kinship terms
   const handleCheckRelation = async () => {
     if (!activeTreeId || !relationSource || !relationTarget) return;
     setLoadingRelation(true);
+    setMarriageEligibility(null);
     try {
       const data = await api.kinship.getRelation(activeTreeId, relationSource._id, relationTarget._id);
       setRelationResult(data);
@@ -495,6 +698,174 @@ const App = () => {
       alert(err.message || 'Error computing relation path');
     } finally {
       setLoadingRelation(false);
+    }
+  };
+
+  // Calculate marriage eligibility
+  const handleCheckMarriageEligibility = async () => {
+    if (!activeTreeId || !relationSource || !relationTarget) return;
+    setLoadingEligibility(true);
+    setRelationResult(null);
+    try {
+      const data = await api.kinship.checkMarriageEligibility(activeTreeId, relationSource._id, relationTarget._id);
+      setMarriageEligibility(data);
+    } catch (err) {
+      alert(err.message || 'Error checking marriage eligibility');
+    } finally {
+      setLoadingEligibility(false);
+    }
+  };
+
+  // Lineage highlights calculations
+  const handleHighlightLineage = (type) => {
+    if (!selectedNode || !rawNodes || !rawEdges) return;
+
+    const nodeIds = new Set();
+    const edgeIds = new Set();
+    const selectedId = selectedNode._id.toString();
+    nodeIds.add(selectedId);
+
+    const getFather = (nodeId) => {
+      const parentEdges = rawEdges.filter(e => e.relationshipType === 'parent_child' && e.targetNodeId === nodeId);
+      for (const edge of parentEdges) {
+        const parentNode = rawNodes.find(n => n._id === edge.sourceNodeId);
+        if (parentNode && parentNode.gender === 1) return parentNode;
+      }
+      return null;
+    };
+
+    const getMother = (nodeId) => {
+      const parentEdges = rawEdges.filter(e => e.relationshipType === 'parent_child' && e.targetNodeId === nodeId);
+      for (const edge of parentEdges) {
+        const parentNode = rawNodes.find(n => n._id === edge.sourceNodeId);
+        if (parentNode && parentNode.gender === 0) return parentNode;
+      }
+      return null;
+    };
+
+    if (type === 'patrilineal') {
+      let currentId = selectedId;
+      let father = getFather(currentId);
+      while (father) {
+        const fId = father._id.toString();
+        nodeIds.add(fId);
+        const edge = rawEdges.find(e => e.relationshipType === 'parent_child' && e.sourceNodeId === fId && e.targetNodeId === currentId);
+        if (edge) edgeIds.add(edge._id);
+        currentId = fId;
+        father = getFather(currentId);
+      }
+
+      if (selectedNode.gender === 1) {
+        const traverseSons = (nodeId) => {
+          const childEdges = rawEdges.filter(e => e.relationshipType === 'parent_child' && e.sourceNodeId === nodeId);
+          for (const edge of childEdges) {
+            const childNode = rawNodes.find(n => n._id === edge.targetNodeId);
+            if (childNode && childNode.gender === 1) {
+              const cId = childNode._id.toString();
+              nodeIds.add(cId);
+              edgeIds.add(edge._id);
+              traverseSons(cId);
+            }
+          }
+        };
+        traverseSons(selectedId);
+      }
+    } else if (type === 'matrilineal') {
+      let currentId = selectedId;
+      let mother = getMother(currentId);
+      while (mother) {
+        const mId = mother._id.toString();
+        nodeIds.add(mId);
+        const edge = rawEdges.find(e => e.relationshipType === 'parent_child' && e.sourceNodeId === mId && e.targetNodeId === currentId);
+        if (edge) edgeIds.add(edge._id);
+        currentId = mId;
+        mother = getMother(currentId);
+      }
+
+      if (selectedNode.gender === 0) {
+        const traverseDaughters = (nodeId) => {
+          const childEdges = rawEdges.filter(e => e.relationshipType === 'parent_child' && e.sourceNodeId === nodeId);
+          for (const edge of childEdges) {
+            const childNode = rawNodes.find(n => n._id === edge.targetNodeId);
+            if (childNode && childNode.gender === 0) {
+              const cId = childNode._id.toString();
+              nodeIds.add(cId);
+              edgeIds.add(edge._id);
+              traverseDaughters(cId);
+            }
+          }
+        };
+        traverseDaughters(selectedId);
+      }
+    }
+
+    setDescentHighlight({
+      type,
+      nodeIds: Array.from(nodeIds),
+      edgeIds: Array.from(edgeIds)
+    });
+  };
+
+  const handleTracePath = (nodeAId, nodeBId) => {
+    if (!nodeAId || !nodeBId || !rawNodes || !rawEdges) return;
+
+    const adj = {};
+    rawEdges.forEach(edge => {
+      const s = edge.sourceNodeId.toString();
+      const t = edge.targetNodeId.toString();
+      if (!adj[s]) adj[s] = [];
+      if (!adj[t]) adj[t] = [];
+      adj[s].push({ target: t, edgeId: edge._id });
+      adj[t].push({ target: s, edgeId: edge._id });
+    });
+
+    const queue = [[nodeAId.toString()]];
+    const visited = new Set([nodeAId.toString()]);
+    let path = null;
+
+    while (queue.length > 0) {
+      const currPath = queue.shift();
+      const lastNode = currPath[currPath.length - 1];
+
+      if (lastNode === nodeBId.toString()) {
+        path = currPath;
+        break;
+      }
+
+      const neighbors = adj[lastNode] || [];
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor.target)) {
+          visited.add(neighbor.target);
+          queue.push([...currPath, neighbor.target]);
+        }
+      }
+    }
+
+    if (path) {
+      const edgeIds = [];
+      for (let i = 0; i < path.length - 1; i++) {
+        const u = path[i];
+        const v = path[i + 1];
+        const edge = rawEdges.find(e => 
+          (e.sourceNodeId.toString() === u && e.targetNodeId.toString() === v) ||
+          (e.sourceNodeId.toString() === v && e.targetNodeId.toString() === u)
+        );
+        if (edge) {
+          edgeIds.push(edge._id);
+        }
+      }
+
+      setDescentHighlight({
+        type: 'path',
+        nodeIds: path,
+        edgeIds
+      });
+    } else {
+      setDescentHighlight({
+        type: 'path',
+        nodeIds: [nodeAId.toString(), nodeBId.toString()],
+        edgeIds: []
+      });
     }
   };
 
@@ -703,6 +1074,7 @@ const App = () => {
             onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
             onNotificationClick={handleNotificationClick}
             hasNotificationAccess={userRole === 'Admin' || userRole === 'Sub-Admin' || rawNodes.some(n => n.linkedUserId && user && n.linkedUserId.toString() === user._id.toString())}
+            onSelectNodesForTrace={handleTracePath}
           />
         </div>
 
@@ -924,6 +1296,7 @@ const App = () => {
                             onClick={() => {
                               setRelationTarget(selectedNode);
                               setRelationResult(null);
+                              setMarriageEligibility(null);
                               setSelectedNode(null); // Auto-close profile panel when set as target
                             }}
                             className={`flex items-center justify-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all active:scale-95 cursor-pointer ${
@@ -938,6 +1311,7 @@ const App = () => {
                             onClick={() => {
                               setRelationSource(selectedNode);
                               setRelationResult(null);
+                              setMarriageEligibility(null);
                               setSelectedNode(null); // Auto-close profile panel when set as source
                             }}
                             className={`flex items-center justify-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all active:scale-95 cursor-pointer ${
@@ -1016,6 +1390,44 @@ const App = () => {
                             )}
                           </div>
                         )}
+
+                        {/* Lineage Highlights */}
+                        <div className="pt-3 border-t border-slate-800/80 space-y-2">
+                          <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block">Lineage Highlights</span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleHighlightLineage('patrilineal')}
+                              className={`flex items-center justify-center space-x-1.5 px-2 py-1.5 rounded-xl border text-[10px] font-bold transition-all active:scale-95 cursor-pointer ${
+                                descentHighlight.type === 'patrilineal' && descentHighlight.nodeIds.includes(selectedNode._id)
+                                  ? 'bg-blue-950/60 border-blue-500 text-blue-400 font-extrabold shadow-md shadow-blue-500/5'
+                                  : 'bg-slate-950 border-slate-855 hover:border-blue-500/30 text-slate-400 hover:text-blue-400'
+                              }`}
+                            >
+                              <span>Patrilineal (Father)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleHighlightLineage('matrilineal')}
+                              className={`flex items-center justify-center space-x-1.5 px-2 py-1.5 rounded-xl border text-[10px] font-bold transition-all active:scale-95 cursor-pointer ${
+                                descentHighlight.type === 'matrilineal' && descentHighlight.nodeIds.includes(selectedNode._id)
+                                  ? 'bg-pink-950/60 border-pink-500 text-pink-400 font-extrabold shadow-md shadow-pink-500/5'
+                                  : 'bg-slate-950 border-slate-855 hover:border-pink-500/30 text-slate-400 hover:text-pink-400'
+                              }`}
+                            >
+                              <span>Matrilineal (Mother)</span>
+                            </button>
+                          </div>
+                          {descentHighlight.type && (
+                            <button
+                              type="button"
+                              onClick={() => setDescentHighlight({ type: null, nodeIds: [], edgeIds: [] })}
+                              className="w-full py-1.5 text-[9px] bg-slate-950 border border-slate-855 hover:border-slate-800 text-slate-500 hover:text-slate-350 rounded-xl flex items-center justify-center space-x-1 cursor-pointer transition-colors"
+                            >
+                              <span>Clear Highlights</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                     </div>
@@ -1057,6 +1469,7 @@ const App = () => {
                         setRelationSource(null);
                         setRelationTarget(null);
                         setRelationResult(null);
+                        setMarriageEligibility(null);
                       }}
                       className="text-slate-500 hover:text-slate-300 p-1 bg-slate-950/40 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                     >
@@ -1074,6 +1487,7 @@ const App = () => {
                           onClick={() => {
                             setRelationTarget(null);
                             setRelationResult(null);
+                            setMarriageEligibility(null);
                           }}
                           className="text-slate-500 hover:text-red-400 ml-1.5 cursor-pointer"
                           title="Clear target"
@@ -1112,15 +1526,24 @@ const App = () => {
                         </div>
                       </div>
 
-                      {/* Calculate Button */}
-                      {!relationResult && (
-                        <button
-                          onClick={handleCheckRelation}
-                          disabled={loadingRelation}
-                          className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs py-2 rounded-xl shadow-lg transition-all duration-300 active:scale-98 disabled:opacity-50 cursor-pointer"
-                        >
-                          {loadingRelation ? 'Computing Relationship Path...' : 'Check Relationship'}
-                        </button>
+                      {/* Calculate Buttons */}
+                      {!relationResult && !marriageEligibility && (
+                        <div className="flex gap-2 w-full">
+                          <button
+                            onClick={handleCheckRelation}
+                            disabled={loadingRelation || loadingEligibility}
+                            className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-650 hover:from-emerald-500 hover:to-teal-600 text-white font-bold text-[11px] py-2.5 rounded-xl shadow-lg transition-all duration-300 active:scale-98 disabled:opacity-50 cursor-pointer text-center"
+                          >
+                            {loadingRelation ? 'Computing Path...' : 'Check Relationship'}
+                          </button>
+                          <button
+                            onClick={handleCheckMarriageEligibility}
+                            disabled={loadingRelation || loadingEligibility}
+                            className="flex-1 bg-gradient-to-r from-purple-650 to-indigo-655 hover:from-purple-550 hover:to-indigo-550 text-white font-bold text-[11px] py-2.5 rounded-xl shadow-lg transition-all duration-300 active:scale-98 disabled:opacity-50 cursor-pointer text-center"
+                          >
+                            {loadingEligibility ? 'Evaluating...' : 'Check Eligibility'}
+                          </button>
+                        </div>
                       )}
 
                       {/* Relationship Result & Lineage Path */}
@@ -1131,13 +1554,24 @@ const App = () => {
                               <span className="text-[9px] uppercase tracking-wider text-slate-500 block font-bold leading-none">Relationship Term</span>
                               <span className="text-sm font-extrabold text-emerald-400 block mt-1">{relationResult.term}</span>
                             </div>
-                            <button
-                              onClick={handleCheckRelation}
-                              disabled={loadingRelation}
-                              className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 text-[10px] font-semibold rounded-lg hover:bg-slate-800 transition-colors"
-                            >
-                              Recalculate
-                            </button>
+                            <div className="flex items-center space-x-1.5">
+                              <button
+                                onClick={handleCheckRelation}
+                                disabled={loadingRelation}
+                                className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 text-[10px] font-semibold rounded-lg hover:bg-slate-800 transition-colors text-slate-350"
+                              >
+                                Recalculate
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setRelationResult(null);
+                                  setMarriageEligibility(null);
+                                }}
+                                className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 text-[10px] font-semibold rounded-lg hover:bg-slate-800 transition-colors text-slate-400"
+                              >
+                                Back
+                              </button>
+                            </div>
                           </div>
 
                           {relationResult.path && relationResult.path.length > 0 && (
@@ -1161,6 +1595,60 @@ const App = () => {
                                   </React.Fragment>
                                 ))}
                               </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Marriage Eligibility Result */}
+                      {marriageEligibility && (
+                        <div className={`p-3 rounded-xl border space-y-2.5 animate-in zoom-in-95 duration-150 ${
+                          marriageEligibility.isEligible 
+                            ? 'bg-emerald-950/20 border-emerald-500/30' 
+                            : 'bg-red-950/20 border-red-500/30'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-[9px] uppercase tracking-wider text-slate-500 block font-bold leading-none">Marriage Compatibility</span>
+                              <span className={`text-xs font-extrabold block mt-1 ${
+                                marriageEligibility.isEligible ? 'text-emerald-400' : 'text-red-400'
+                              }`}>
+                                {marriageEligibility.isEligible ? '✅ COMPATIBLE' : '❌ INCOMPATIBLE'}
+                              </span>
+                            </div>
+                            <div className="flex items-center space-x-1.5">
+                              <button
+                                onClick={handleCheckMarriageEligibility}
+                                disabled={loadingEligibility}
+                                className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 text-[10px] font-semibold rounded-lg hover:bg-slate-800 transition-colors text-slate-350"
+                              >
+                                Re-evaluate
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setRelationResult(null);
+                                  setMarriageEligibility(null);
+                                }}
+                                className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 text-[10px] font-semibold rounded-lg hover:bg-slate-800 transition-colors text-slate-400"
+                              >
+                                Back
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <p className="text-[11px] text-slate-350 leading-relaxed font-medium">
+                            {marriageEligibility.details}
+                          </p>
+
+                          {marriageEligibility.reasons && marriageEligibility.reasons.length > 0 && (
+                            <div className="border-t border-slate-800/40 pt-2 space-y-1">
+                              <span className="text-[9px] uppercase tracking-wider text-slate-500 block font-bold leading-none mb-1">Rule Violations:</span>
+                              {marriageEligibility.reasons.map((reason, idx) => (
+                                <p key={idx} className="text-[10px] text-red-450 flex items-start space-x-1.5">
+                                  <span>•</span>
+                                  <span>{reason}</span>
+                                </p>
+                              ))}
                             </div>
                           )}
                         </div>
@@ -1212,6 +1700,7 @@ const App = () => {
                 layoutDirection={layoutDirection}
                 onViewImage={(url) => setPreviewImageUrl(url)}
                 onViewCrossTree={handleViewCrossTree}
+                descentHighlight={descentHighlight}
               />
               {graphCenterNodeId && (
                 <button

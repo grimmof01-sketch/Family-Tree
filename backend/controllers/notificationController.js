@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 const Tree = require('../models/Tree');
 const Node = require('../models/Node');
 const Edge = require('../models/Edge');
+const User = require('../models/User');
 const Notification = require('../models/Notification');
+const NotificationLog = require('../models/NotificationLog');
+const { sendAlert } = require('../utils/notificationDelivery');
 const { getUserRoleInTree } = require('./treeController');
 
 const getNearestEventDate = (dateOfEvent, today) => {
@@ -94,6 +97,42 @@ const getNotifications = async (req, res) => {
             },
             { upsert: true, new: true }
           );
+
+          // Deliver automated alerts directly to this family member
+          if (node.email) {
+            const hasSentEmail = await NotificationLog.exists({
+              treeId,
+              recipientContact: node.email.toLowerCase(),
+              title
+            });
+            if (!hasSentEmail) {
+              await sendAlert({
+                treeId,
+                recipientName: node.name,
+                recipientContact: node.email.toLowerCase(),
+                deliveryType: 'email',
+                title,
+                message
+              });
+            }
+          }
+          if (node.mobileNumber) {
+            const hasSentSMS = await NotificationLog.exists({
+              treeId,
+              recipientContact: node.mobileNumber,
+              title
+            });
+            if (!hasSentSMS) {
+              await sendAlert({
+                treeId,
+                recipientName: node.name,
+                recipientContact: node.mobileNumber,
+                deliveryType: 'sms',
+                title,
+                message
+              });
+            }
+          }
         }
       }
 
@@ -123,6 +162,28 @@ const getNotifications = async (req, res) => {
             },
             { upsert: true, new: true }
           );
+
+          // Send remembrance to tree creator
+          if (tree.createdBy) {
+            const creatorUser = await User.findById(tree.createdBy);
+            if (creatorUser && creatorUser.email) {
+              const hasSentEmail = await NotificationLog.exists({
+                treeId,
+                recipientContact: creatorUser.email.toLowerCase(),
+                title
+              });
+              if (!hasSentEmail) {
+                await sendAlert({
+                  treeId,
+                  recipientName: creatorUser.profile?.name || 'Tree Creator',
+                  recipientContact: creatorUser.email.toLowerCase(),
+                  deliveryType: 'email',
+                  title,
+                  message
+                });
+              }
+            }
+          }
         }
       }
 
@@ -167,6 +228,77 @@ const getNotifications = async (req, res) => {
                   },
                   { upsert: true, new: true }
                 );
+
+                // Deliver to node A
+                if (node.email) {
+                  const hasSent = await NotificationLog.exists({
+                    treeId,
+                    recipientContact: node.email.toLowerCase(),
+                    title
+                  });
+                  if (!hasSent) {
+                    await sendAlert({
+                      treeId,
+                      recipientName: node.name,
+                      recipientContact: node.email.toLowerCase(),
+                      deliveryType: 'email',
+                      title,
+                      message
+                    });
+                  }
+                }
+                if (node.mobileNumber) {
+                  const hasSent = await NotificationLog.exists({
+                    treeId,
+                    recipientContact: node.mobileNumber,
+                    title
+                  });
+                  if (!hasSent) {
+                    await sendAlert({
+                      treeId,
+                      recipientName: node.name,
+                      recipientContact: node.mobileNumber,
+                      deliveryType: 'sms',
+                      title,
+                      message
+                    });
+                  }
+                }
+                // Deliver to spouse (Node B)
+                if (spouse.email) {
+                  const hasSent = await NotificationLog.exists({
+                    treeId,
+                    recipientContact: spouse.email.toLowerCase(),
+                    title
+                  });
+                  if (!hasSent) {
+                    await sendAlert({
+                      treeId,
+                      recipientName: spouse.name,
+                      recipientContact: spouse.email.toLowerCase(),
+                      deliveryType: 'email',
+                      title,
+                      message
+                    });
+                  }
+                }
+                if (spouse.mobileNumber) {
+                  const hasSent = await NotificationLog.exists({
+                    treeId,
+                    recipientContact: spouse.mobileNumber,
+                    title
+                  });
+                  if (!hasSent) {
+                    await sendAlert({
+                      treeId,
+                      recipientName: spouse.name,
+                      recipientContact: spouse.mobileNumber,
+                      deliveryType: 'sms',
+                      title,
+                      message
+                    });
+                  }
+                }
               }
             }
           }
@@ -220,8 +352,35 @@ const markAllAsRead = async (req, res) => {
   }
 };
 
+// @desc    Get delivery logs for a tree
+// @route   GET /api/kinship/:treeId/delivery-logs
+// @access  Private (Admin or Sub-Admin or Linked Member)
+const getDeliveryLogs = async (req, res) => {
+  const { treeId } = req.params;
+  try {
+    const tree = await Tree.findById(treeId);
+    if (!tree) {
+      return res.status(404).json({ message: 'Tree not found' });
+    }
+
+    const role = await getUserRoleInTree(tree, req.user.id);
+    const isLinked = await Node.exists({ treeId, linkedUserId: req.user.id });
+    const isAdmin = role === 'Admin' || role === 'Sub-Admin';
+
+    if (!isAdmin && !isLinked) {
+      return res.status(403).json({ message: 'Access denied: You must be an Admin or have a linked node to view delivery logs.' });
+    }
+
+    const logs = await NotificationLog.find({ treeId }).sort({ sentAt: -1 }).limit(100);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getNotifications,
   markAsRead,
-  markAllAsRead
+  markAllAsRead,
+  getDeliveryLogs
 };
